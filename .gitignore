@@ -1,5 +1,5 @@
 *.swp
 *.swo
-*~lock
+*.~lock*
 *__pycache__
 
