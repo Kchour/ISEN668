@@ -175,10 +175,24 @@ from pyomo.opt import SolverFactory
 days = np.arange(1,16).tolist()      
 regions = dfRegions['Region'].tolist()
 
-# Create Value data
-#[(m,n,r,d) for m in 
+# Create Value data along with its indices
+mnrd = []
+valueMNRD = []
+# Also create mission complete variables
+mrd = []
 
-# only select cmcs from the dfShips list
+for m, mInfo in dfMission.iterrows():
+    for mType in dfCMC.keys().to_list()[2::]:
+        for rIndex, rInfo in dfRegions.iterrows():
+            for d in days:
+                dVect = np.arange(mInfo['Start Day'], mInfo['Day End']+1).tolist()
+                if (mInfo['Region'] == rInfo['Region']) and (d in dVect) and (mInfo['Value'] > 0 and mInfo['Type']==mType):
+                    mnrd.append((m, mType, rInfo['Region'], d))    
+                    valueMNRD.append(mInfo['Value'])
+                    if (m,rInfo['Region'], d) not in mrd:
+                        mrd.append((m,rInfo['Region'], d))        
+
+# Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
 cmcCols = dfCMC.columns.tolist()
 for ship in ship_schedule.keys():
@@ -202,7 +216,6 @@ for ship in ship_schedule.keys():
     # add all cmcs to current ship
     cmcS.update({ship: {'Class': dfShips.loc[ship]['Class'], 'ALL_CMCs': tempArray[:]}})
 
-#cmcS = {ship: info for ship in ship_schedule.keys() for index, info in dfCMC.iterrows() if info['Ship Class']==dfShips.loc[ship]['Class'] or info['Ship Class'] == 'All SHIPS'}
 # initialize model
 model = ConcreteModel()
 
@@ -210,8 +223,16 @@ model = ConcreteModel()
 model.schedule = Var( ((ship, schedule) for ship in ship_schedule.keys() for schedule in range(len(ship_schedule[ship]))), within=Binary, initialize=0)
 
 # binary variables for concurrent mission selection. Indexed by ship, cmc, day, and region
-pdb.set_trace()
 model.cmc = Var( ((ship, cmc['CMC'], day, region) for ship in ship_schedule.keys() for cmc in cmcS[ship]['ALL_CMCs'] for day in days for region in regions), within=Binary, initialize=0)
+
+pdb.set_trace()
+# binary variables for fully-accomplished mission
+model.finished = Var((row for row in mrd), within=Binary, initialize=0)
+
+# continuous variables up to 1 for accomplishment level
+model.level = Var((row for row in mnrd), bounds = (0, 1), initialize=0)
+
+pdb.set_trace()
 
 #for index, row in dfCMC.iterrows():
 #    if row["Ship Class"] == prevClass:
