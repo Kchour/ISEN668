@@ -82,7 +82,7 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
         ship_schedule = {}
         ship_speed = 16  #knots
         cutoff_time = 16.0  # hrs must remain on arrival
-        schedule_limit = 10 # limit the number of schedules generated
+        schedule_limit = 1000 # limit the number of schedules generated
         # Create a graph based on edges given
         graph = MyGraph(edgeDict)
 
@@ -93,7 +93,7 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
             #print(graph.neighbors('r1'))
             iter_ = 0
             full_schedule = []  #full schedule for one ship
-            while iter_<= schedule_limit: 
+            while iter_< schedule_limit: 
                 # temporary schedule list
                 start = info["Start Region"]
                 temp = [start]
@@ -165,15 +165,16 @@ ship_schedule = generate_schedules(dfShips, regenerate=False, saveToDisk=False)
 
 
 ## Create some variables for ease of use
-days = np.arange(1,16).tolist()      
-regions = dfRegions['Region'].tolist()
+days = np.arange(1,16).tolist()                 #days 1-15  
+regions = dfRegions['Region'].tolist()          
+missionNums = dfMission.index.values.tolist()   #for m
 
 # Create Value data along with its indices
 mnrd = []
-valueMNRD = []
+valueMNRD = {}
 # Also create mission complete variables
 mrd = []
-
+Qrd = []
 # Old way of doing mnrd, valueMNRD, and mrd
 #for n, nInfo in dfMission.iterrows():
 #    for mType in dfCMC.keys().to_list()[2::]:
@@ -190,11 +191,14 @@ mrd = []
 for n, nInfo in dfMission.iterrows():
     for d in range(nInfo['Start Day'], nInfo['Day End']+1):
         mnrd.append([(nInfo['Type'], n, nInfo['Region'], d), nInfo['Value'], {'Required': (nInfo['Required'], nInfo['Unnamed: 8']) }])
+        Qrd.append((nInfo['Type'], nInfo['Required'])) 
+        Qrd.append((nInfo['Type'], nInfo['Unnamed: 8']))
+        valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
         
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
 cmcCols = dfCMC.columns.tolist()
-missionTypes = cmcCols[1::]
+missionTypes = cmcCols[2::]
 for ship in ship_schedule.keys():
 
     # GET ALL THE CMCS for current ship 
@@ -216,12 +220,16 @@ for ship in ship_schedule.keys():
     # add all cmcs to current ship
     cmcS.update({ship: {'Class': dfShips.loc[ship]['Class'], 'ALL_CMCs': tempArray[:]}})
 
+# Create accomplishment value variable
+
 #### BUILD MODEL FOR SOLVING
 ''' TO debug model do:
     model.pprint()
 '''
 from pyomo.environ import *
 from pyomo.opt import SolverFactory
+from pyomo.core.expr import current as EXPR #to allow printing of expressions
+'''print(EXPR.expression_to_string(e, verbose=True)) '''
 
 ## initialize model
 model = ConcreteModel()
@@ -240,37 +248,90 @@ model.level = Var((row[0] for row in mnrd), bounds = (0, 1), initialize=0)
 model.finished = Var(((row[0][0], row[0][2], row[0][3]) for row in mnrd), within=Binary, initialize=0)
 
 
-pdb.set_trace()
 ## Build constraints
 model.constraints = ConstraintList()
 
-# For each ship, sum over each s in schedule (indexed by natural numbers)
+# For each ship, sum over each s in schedule (indexed by natural numbers) (T1)
 for ship in ship_schedule.keys():
     model.constraints.add(
         1 == sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship]))) 
     )
 
-# For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day
+# For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
 for ship in ship_schedule.keys():
     for day in days:
         for region in regions:
+            ''' lhs '''
+            lhs = sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'])
+            ''' rhs '''
+            rhs = sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day-1] == region)
+            model.constraints.add(lhs <= rhs) 
+            #for schedule in range(len(ship_schedule[ship])):
+            #    # need to use day-1 for index purposes
+            #    if ship_schedule[ship][schedule][day-1]==region:
+            #        #model.schedule[ship, schedule].pprint()
             # Sum lhs over cmcs availbe for ship
-            model.constraints.add(
-                sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'] ) <= sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day]==region )
-            )
+            #model.constraints.add(
+            #    sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'] ) <= sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day]==region )
+            #)
 
-## We have completed a task with somemission type, at some region, and some day
-#for m in missionTypes:
-#    for region in regions:
-#        for day in days:
-#            ''' '''
-#           
-#            model.constraints.add(
-#            
-#            )
+# Accomplishment level for each m,r,d sum over n....(T3)
+for m in missionTypes:
+    for r in regions:
+        for d in days:
+            ''' lhs '''
+            lhs = 0
+            rhs = 0
+            for n in missionNums:
+                if (m, n, r, d) in model.level:
+                    lhs += model.level[m,n,r,d]
+                    ''' rhs '''
+                    for ship in ship_schedule.keys():
+                        for cmc in cmcS[ship]['ALL_CMCs']:
+                            rhs += cmc[m]*model.cmc[ship, cmc['CMC'], d, r] 
+                    
+                    ''' add constraints '''
+                    model.constraints.add(lhs<= rhs)
 
-#### TIMING CODE
+### We have completed a task with somemission type, at some region, and some day...(T4hall)
+for m in missionTypes:
+    for r in regions:
+        for d in days:
+            ''' lhs '''
+            for n in missionNums:
+                if (m, n, r, d) in model.level:
+                    lhs = model.finished[m,r,d]
+                    ''' rhs '''
+                    rhs = sum(model.level[m,n,r,d] for n in missionNums if (m, n, r, d) in model.level)
+                    '''add constraint'''
+                    model.constraints.add(lhs <= rhs)
+
+### dependencies...(T5hall)
+for m in missionTypes:
+    for n in missionNums:
+        for r in regions:
+            for d in days:
+                ''' '''
+                for m2 in missionTypes:
+                    if (m, n, r, d) in model.level and (m2, n, r, d) in model.level and (m, m2) in Qrd:
+                        model.constraints.add( model.level[m, n, r, d] <= model.finished[m2, r, d])
+
+### add objective function
+
+# define objective function with model as input
+def obj_rule(model):
+    sum_ =  sum(valueMNRD[(m, n, r, d)]*model.level[m, n, r, d] for m in missionTypes for n in missionNums for r in regions for d in days if (m, n, r, d) in model.level)
+    return  sum_
+
+# add obj function to model
+model.obj = Objective(rule=obj_rule, sense=maximize)
+
+
+### Solve the problem
+# TIMING CODE
 from codetiming import Timer
 
-
+opt = SolverFactory('cbc')
+results = opt.solve(model)
+pdb.set_trace()
 
