@@ -69,7 +69,7 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
         -Planning horizon: 15 days
         -Planning time step: 1 day
         -Ship can participate in region if arrives with 16.0 hrs of day remaining
-        
+        - 
         Also:
         -When in Transit, add rTransit region
     '''
@@ -159,16 +159,9 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
         dfSave.to_excel("testSchedule.xls", index=False)
     
     return ship_schedule
-
-#### RETRIEVE CANDIDATE SCHEDULES
+#### Define Data for modeling
+## RETRIEVE CANDIDATE SCHEDULES
 ship_schedule = generate_schedules(dfShips, regenerate=False, saveToDisk=False)
-
-#### BUILD MODEL FOR SOLVING
-''' TO debug model do:
-    model.pprint()
-'''
-from pyomo.environ import *
-from pyomo.opt import SolverFactory
 
 
 ## Create some variables for ease of use
@@ -181,20 +174,27 @@ valueMNRD = []
 # Also create mission complete variables
 mrd = []
 
-for m, mInfo in dfMission.iterrows():
-    for mType in dfCMC.keys().to_list()[2::]:
-        for rIndex, rInfo in dfRegions.iterrows():
-            for d in days:
-                dVect = np.arange(mInfo['Start Day'], mInfo['Day End']+1).tolist()
-                if (mInfo['Region'] == rInfo['Region']) and (d in dVect) and (mInfo['Value'] > 0 and mInfo['Type']==mType):
-                    mnrd.append((m, mType, rInfo['Region'], d))    
-                    valueMNRD.append(mInfo['Value'])
-                    if (m,rInfo['Region'], d) not in mrd:
-                        mrd.append((m,rInfo['Region'], d))        
+# Old way of doing mnrd, valueMNRD, and mrd
+#for n, nInfo in dfMission.iterrows():
+#    for mType in dfCMC.keys().to_list()[2::]:
+#        for rIndex, rInfo in dfRegions.iterrows():
+#            for d in days:
+#                dVect = np.arange(mInfo['Start Day'], mInfo['Day End']+1).tolist()
+#                # Dont forget about accomplishment level
+#                if (nInfo['Region'] == rInfo['Region']) and (d in dVect) and (nInfo['Value'] > 0 and nInfo['Type']==mType):
+#                    mnrd.append((mType, n, rInfo['Region'], d))    
+#                    valueMNRD.append(nInfo['Value'])
+#                    if (m,rInfo['Region'], d) not in mrd:
+#                        mrd.append((mType,rInfo['Region'], d))        
 
+for n, nInfo in dfMission.iterrows():
+    for d in range(nInfo['Start Day'], nInfo['Day End']+1):
+        mnrd.append([(nInfo['Type'], n, nInfo['Region'], d), nInfo['Value'], {'Required': (nInfo['Required'], nInfo['Unnamed: 8']) }])
+        
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
 cmcCols = dfCMC.columns.tolist()
+missionTypes = cmcCols[1::]
 for ship in ship_schedule.keys():
 
     # GET ALL THE CMCS for current ship 
@@ -216,27 +216,58 @@ for ship in ship_schedule.keys():
     # add all cmcs to current ship
     cmcS.update({ship: {'Class': dfShips.loc[ship]['Class'], 'ALL_CMCs': tempArray[:]}})
 
-# initialize model
+#### BUILD MODEL FOR SOLVING
+''' TO debug model do:
+    model.pprint()
+'''
+from pyomo.environ import *
+from pyomo.opt import SolverFactory
+
+## initialize model
 model = ConcreteModel()
 
-# binary variable for schedule selected for ship
+## Define Variables
+# binary variable for schedule selected for ship (Y_{ps})
 model.schedule = Var( ((ship, schedule) for ship in ship_schedule.keys() for schedule in range(len(ship_schedule[ship]))), within=Binary, initialize=0)
 
-# binary variables for concurrent mission selection. Indexed by ship, cmc, day, and region
+# binary variables for concurrent mission selection. Indexed by ship, cmc#, day, and region (W)
 model.cmc = Var( ((ship, cmc['CMC'], day, region) for ship in ship_schedule.keys() for cmc in cmcS[ship]['ALL_CMCs'] for day in days for region in regions), within=Binary, initialize=0)
 
-pdb.set_trace()
-# binary variables for fully-accomplished mission
-model.finished = Var((row for row in mrd), within=Binary, initialize=0)
-
 # continuous variables up to 1 for accomplishment level
-model.level = Var((row for row in mnrd), bounds = (0, 1), initialize=0)
+model.level = Var((row[0] for row in mnrd), bounds = (0, 1), initialize=0)
+
+# binary variables for fully-accomplished mission (V)
+model.finished = Var(((row[0][0], row[0][2], row[0][3]) for row in mnrd), within=Binary, initialize=0)
+
 
 pdb.set_trace()
+## Build constraints
+model.constraints = ConstraintList()
 
-#for index, row in dfCMC.iterrows():
-#    if row["Ship Class"] == prevClass:
-#        temp
+# For each ship, sum over each s in schedule (indexed by natural numbers)
+for ship in ship_schedule.keys():
+    model.constraints.add(
+        1 == sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship]))) 
+    )
+
+# For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day
+for ship in ship_schedule.keys():
+    for day in days:
+        for region in regions:
+            # Sum lhs over cmcs availbe for ship
+            model.constraints.add(
+                sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'] ) <= sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day]==region )
+            )
+
+## We have completed a task with somemission type, at some region, and some day
+#for m in missionTypes:
+#    for region in regions:
+#        for day in days:
+#            ''' '''
+#           
+#            model.constraints.add(
+#            
+#            )
 
 #### TIMING CODE
 from codetiming import Timer
