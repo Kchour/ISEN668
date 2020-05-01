@@ -214,8 +214,8 @@ for ship in ship_schedule.keys():
         tempArray.append(row.to_dict('records')[0])
 
     # APPEND TRANSIT CMC
-    row = dfCMC.loc[(dfCMC['Ship Class']=='ALL SHIPS')][cmcCols[1::]]
-    tempArray.append(row.to_dict('records')[0])
+    #row = dfCMC.loc[(dfCMC['Ship Class']=='ALL SHIPS')][cmcCols[1::]]
+    #tempArray.append(row.to_dict('records')[0])
 
     # add all cmcs to current ship
     cmcS.update({ship: {'Class': dfShips.loc[ship]['Class'], 'ALL_CMCs': tempArray[:]}})
@@ -333,5 +333,7 @@ from codetiming import Timer
 
 opt = SolverFactory('cbc')
 results = opt.solve(model)
+# model.solutions.store_to(results)
+results.write()
 pdb.set_trace()
 
