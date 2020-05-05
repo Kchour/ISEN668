@@ -7,6 +7,9 @@ from search_algorithms import *
 import networkx as nx
 import random as rdm
 import numpy as np
+from optim_utils import *
+
+global ship_speed, shipLimit, dayHorizon, schedule_limit
 
 #### LOAD MISSION SET
 path = "./mission_set.ods"
@@ -57,14 +60,71 @@ edgeDict.update(edgeDictMirror)
 #
 #plt.axis('off')
 #plt.show()
+''' get a list of ship names based on quantity '''
+def get_ships(shipLimit):
+    
+    ship_inst = 1
+    shipList = []
+    for index, info in dfShips.iterrows():
+        #skip ship if not available
+        if info['Avail'] == 'x':
+            if ship_inst > shipLimit:
+                    break
+            shipList.append(index)
+            ship_inst += 1
+    return shipList
 
-def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
+''' for each ship, region, day...see if there is a reasonable mission/cmc pair '''
+def generate_feasible_srd(ships, cmcS, mnrd):
+    # ships: ['Monterey', ... ]
+    #To access ship cmc: cmcS['Monterey']['ALL_CMCs']
+
+    ship_srd = {}
+    # go through mnrd to get type
+    for ship in ships:
+        for cmc in cmcS[ship]['ALL_CMCs']:
+            for row in mnrd:
+                # 1st elem is a tuple, [0] is mission type
+                type_ = row[0][0]
+                day_ = row[0][3]
+                region_ = row[0][2]
+
+                # mission value row[1]
+                value_ = row[1]
+                if value_ > 0 and cmc[type_] > 0:
+                    ship_srd.update({(ship, region_, day_): True})
+    return ship_srd 
+   
+''' generate all shortest path distances'''
+def generate_asp(regions):
+    graph = MyGraph(edgeDict)
+    asp = {}
+    for r1 in regions:
+        for r2 in regions:
+            SA = Search(graph, r1, r2)
+            parents, optimal_cost = SA.a_star_search(h_type='zero', visualize=False)
+        asp.update({r1: optimal_cost})
+    return asp
+
+ship_speed = 16  #knots
+cutoff_frac = 1/3  # round down if fractional day is less than this
+#shipLimit = 18      #18 SHIPS IS THE MAX. This function is done outside now
+dayHorizon = 15
+schedule_limit = 10 #100,1000,50000 limit the number of schedules generated
+def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=False):
+    global ship_speed, shipLimit, dayHorizon, schedule_limit
     #### GENERATE SCHEDULES
     ''' We will use Dijkstra repeatedly to get feasible schedules for each ship
         Condition:
         if GEN_SCHEDULES == True, then we will regenerate schedules, else
                                   read from disk
-       
+        Inputs: 
+        -dfShips(df), 
+        -all shortest paths(dict), 
+        -desired ships to use (list)
+        -regenerate schedules (bool), 
+        -saveToDisk (bool)
+
         Assumption:
         -Planning horizon: 15 days
         -Planning time step: 1 day
@@ -77,18 +137,21 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
         ship_schedule = {index:[] for index, info in dfShips.iterrows() if info["Avail"] == 'x'}
         # convert ship info to dict for ease of use
         dfShips_dict = dfShips.to_dict()
-
         # Initialize ship_schedule dict
         ship_schedule = {}
-        ship_speed = 16  #knots
-        cutoff_time = 16.0  # hrs must remain on arrival
-        schedule_limit = 1000 # limit the number of schedules generated
+        #ship_speed = 16  #knots
+        #cutoff_frac = 1/3  # round down if fractional day is less than this
+        ##shipLimit = 18      #18 SHIPS IS THE MAX. This function is done outside now
+        #dayHorizon = 15
+        #schedule_limit = 10 #100,1000,50000 limit the number of schedules generated
         # Create a graph based on edges given
-        graph = MyGraph(edgeDict)
+        #graph = MyGraph(edgeDict)
 
         ship_inst = 1
-        for index, info in dfShips.iterrows():
-           
+        #for index, info in dfShips.iterrows():
+        for ship in desiredShips:
+            info = dfShips.loc[ship]
+            # Skip ship if not available
             # USE dijkstra algorithm (astar with 0 heuristic)
             #print(graph.neighbors('r1'))
             iter_ = 0
@@ -96,25 +159,49 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
             while iter_< schedule_limit: 
                 # temporary schedule list
                 start = info["Start Region"]
-                temp = [start]
+                temp = []   #container for acceptable region
+                day = 0 #current day
                 while True:
-                    goal = None
-                    SA = Search(graph, start, goal)
-                    parents, optimal_cost = SA.a_star_search(h_type='zero', visualize=False)
-                    ## RECONSTRUCT THE PATH
-                    #path = reconstruct_path(parents, start, goal)
-                   
-                    # Random selection
-                    rand_sel = rdm.choice(list(optimal_cost.keys())) 
+                    # if temp is greater than 15 stop
+                    if len(temp) >= dayHorizon:
+                        break
 
+                    # test mission/cmc is reasonable
+                    potential_ = asp[start]
+                    feasibleTargets = {}
+                    for r in potential_.keys():
+                        # round down if fractional part is less than 8 hours
+                        #time = asp[start][rand_sel]/ship_speed/24.0
+                        time = potential_[r]/ship_speed/24.0
+                        if time-np.floor(time) <= cutoff_frac:
+                            time = np.floor(time).astype('int')
+                        else:
+                            time = np.ceil(time).astype('int')
+                        day2 = day + time + 1
+                        if day2 <= dayHorizon: 
+                            try: 
+                                feasible = srd[(ship, r, day2)]
+                            except:
+                                feasible = False
+                                ''' may need to update feasibleTargets here wiht current pos'''
+                                pass
+                            if feasible == True:
+                                feasibleTargets.update({r: time})
+                    # Random selection. modified to use asp instead 
+                    #rand_sel = rdm.choice(list(asp[start].keys())) 
+                    # Random selection. modified to use asp and test feasibility
+                    rand_sel = rdm.choice(list(feasibleTargets.keys()))
                     # Find Transit Time in days and decide what to do
-                    time = optimal_cost[rand_sel]/ship_speed/24.0
-                    
+                    #time = optimal_cost[rand_sel]/ship_speed/24.0
+                    #time = asp[start][rand_sel]/ship_speed/24.0
+                    # now using using feasible Targets, returns time in days
+                    time = feasibleTargets[rand_sel]
+
                     # round down if fractional part is less than 8 hours
-                    if time-np.floor(time) <= 1/3:
-                        time = np.floor(time).astype('int')
-                    else:
-                        time = np.ceil(time).astype('int')
+                    #if time-np.floor(time) <= cutoff_frac:
+                    #    time = np.floor(time).astype('int')
+                    #else:
+                    #    time = np.ceil(time).astype('int')
 
                     for i in range(time):
                         temp.append('rTransit')
@@ -123,27 +210,25 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
                    
                     # start search from previous desired selection
                     start = rand_sel
+                    #update current day
+                    day += time + 1
 
-                    # if temp is greater than 15 stop
-                    if len(temp) > 15:
-                        temp = temp[0:15]
-                        break
                 # update current ship schedule
                 full_schedule.append(temp[:])
                 
                 #update iter_
+                print(iter_)
                 iter_ +=1
             
-            # assign to each ship name (given by index) candidate schedules
-            ship_schedule.update({index: full_schedule[:]})
-           
-            # if testing just 1 ship
-            if ship_inst >= 3:
-                break
-            ship_inst += 1
+                # assign to each ship name (given by index) candidate schedules
+                #ship_schedule.update({index: full_schedule[:]})
+                ship_schedule.update({ship: full_schedule[:]})
+               
+                # # if testing just 1 ship
+                # ship_inst += 1
     else:
         #READ schedules from disk if they exist
-        test = pd.read_excel("testSchedule.xls")
+        test = pd.read_excel("Schedule_10.xlsx")
         ship_schedule = test.to_dict('list')
 
         # remote 'quotes' from read schedules
@@ -156,13 +241,10 @@ def generate_schedules(dfShips, regenerate=False, saveToDisk=False):
     # Save schedules to disk
     if saveToDisk == True and regenerate == True:
         dfSave = pd.DataFrame.from_dict(ship_schedule)
-        dfSave.to_excel("testSchedule.xls", index=False)
+        dfSave.to_excel("Schedule_10.xlsx", index=False)
     
     return ship_schedule
 #### Define Data for modeling
-## RETRIEVE CANDIDATE SCHEDULES
-ship_schedule = generate_schedules(dfShips, regenerate=False, saveToDisk=False)
-
 
 ## Create some variables for ease of use
 days = np.arange(1,16).tolist()                 #days 1-15  
@@ -174,33 +256,42 @@ mnrd = []
 valueMNRD = {}
 # Also create mission complete variables
 mrd = []
-Qrd = []
-# Old way of doing mnrd, valueMNRD, and mrd
-#for n, nInfo in dfMission.iterrows():
-#    for mType in dfCMC.keys().to_list()[2::]:
-#        for rIndex, rInfo in dfRegions.iterrows():
-#            for d in days:
-#                dVect = np.arange(mInfo['Start Day'], mInfo['Day End']+1).tolist()
-#                # Dont forget about accomplishment level
-#                if (nInfo['Region'] == rInfo['Region']) and (d in dVect) and (nInfo['Value'] > 0 and nInfo['Type']==mType):
-#                    mnrd.append((mType, n, rInfo['Region'], d))    
-#                    valueMNRD.append(nInfo['Value'])
-#                    if (m,rInfo['Region'], d) not in mrd:
-#                        mrd.append((mType,rInfo['Region'], d))        
+Qrd = {}
 
+# process mission set
 for n, nInfo in dfMission.iterrows():
     for d in range(nInfo['Start Day'], nInfo['Day End']+1):
         mnrd.append([(nInfo['Type'], n, nInfo['Region'], d), nInfo['Value'], {'Required': (nInfo['Required'], nInfo['Unnamed: 8']) }])
-        Qrd.append((nInfo['Type'], nInfo['Required'])) 
-        Qrd.append((nInfo['Type'], nInfo['Unnamed: 8']))
-        valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
+        try:
+            # if Qrd is non-empty
+            temp = Qrd[(nInfo['Region'],d)]
+        except:
+            # if Qrd is empty
+            temp = [(nInfo['Type'], nInfo['Required'])]
+            Qrd.update({ (nInfo['Region'], d): temp})
+           
+            temp = Qrd[(nInfo['Region'],d)] 
+            temp.append((nInfo['Type'], nInfo['Unnamed: 8']))
+            Qrd.update({ (nInfo['Region'], d): temp})
+
         
+        temp.append((nInfo['Type'], nInfo['Required']))
+        temp.append((nInfo['Type'], nInfo['Unnamed: 8']))
+        Qrd.update({ (nInfo['Region'], d): temp})
+        
+        #Qrd.update( {(nInfo['Region'],d):(nInfo['Type'], nInfo['Required'])}) 
+        #Qrd.update( (nInfo['Type'], nInfo['Unnamed: 8']))
+        valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
+
+# get a list of ships
+shipList = get_ships(18)
+
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
 cmcCols = dfCMC.columns.tolist()
 missionTypes = cmcCols[2::]
-for ship in ship_schedule.keys():
-
+#for ship in ship_schedule.keys():
+for ship in shipList:
     # GET ALL THE CMCS for current ship 
     cmcTemp = [dfShips.loc[ship]['CMC']]
     cmcTemp.append(dfShips.loc[ship]['Unnamed: 8'])
@@ -208,10 +299,15 @@ for ship in ship_schedule.keys():
     
     #collect cmcs
     tempArray=[]
+    
+    #if ship == 'Vandegrift':
+    #    pdb.set_trace()
     for cmcValue in cmcTemp:
-        #remove ship class column
-        row = dfCMC.loc[(dfCMC['CMC']==cmcValue) ][cmcCols[1::]]
-        tempArray.append(row.to_dict('records')[0])
+        #ignore nan
+        if str(cmcValue) != 'nan':        
+            #remove ship class column
+            row = dfCMC.loc[(dfCMC['CMC']==cmcValue) ][cmcCols[1::]]
+            tempArray.append(row.to_dict('records')[0])
 
     # APPEND TRANSIT CMC
     #row = dfCMC.loc[(dfCMC['Ship Class']=='ALL SHIPS')][cmcCols[1::]]
@@ -220,8 +316,14 @@ for ship in ship_schedule.keys():
     # add all cmcs to current ship
     cmcS.update({ship: {'Class': dfShips.loc[ship]['Class'], 'ALL_CMCs': tempArray[:]}})
 
-# Create accomplishment value variable
+# get all shortest paths dist pair
+asp = generate_asp(regions)
 
+# get is feasible mission/cmc on day and region
+srd = generate_feasible_srd(shipList, cmcS, mnrd)
+
+## RETRIEVE CANDIDATE SCHEDULES
+ship_schedule = generate_schedules(dfShips, asp, shipList, regenerate=False, saveToDisk=False)
 #### BUILD MODEL FOR SOLVING
 ''' TO debug model do:
     model.pprint()
@@ -254,7 +356,7 @@ model.constraints = ConstraintList()
 # For each ship, sum over each s in schedule (indexed by natural numbers) (T1)
 for ship in ship_schedule.keys():
     model.constraints.add(
-        1 == sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship]))) 
+         sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])))<=1 
     )
 
 # For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
@@ -265,7 +367,7 @@ for ship in ship_schedule.keys():
             lhs = sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'])
             ''' rhs '''
             rhs = sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day-1] == region)
-            model.constraints.add(lhs <= rhs) 
+            model.constraints.add(lhs == rhs) 
             #for schedule in range(len(ship_schedule[ship])):
             #    # need to use day-1 for index purposes
             #    if ship_schedule[ship][schedule][day-1]==region:
@@ -279,32 +381,40 @@ for ship in ship_schedule.keys():
 for m in missionTypes:
     for r in regions:
         for d in days:
-            ''' lhs '''
-            lhs = 0
-            rhs = 0
-            for n in missionNums:
-                if (m, n, r, d) in model.level:
-                    lhs += model.level[m,n,r,d]
-                    ''' rhs '''
-                    for ship in ship_schedule.keys():
-                        for cmc in cmcS[ship]['ALL_CMCs']:
-                            rhs += cmc[m]*model.cmc[ship, cmc['CMC'], d, r] 
-                    
-                    ''' add constraints '''
-                    model.constraints.add(lhs<= rhs)
+            ''' old implementation'''
+            #''' lhs '''
+            #lhs = 0
+            #rhs = 0
+            #for n in missionNums:
+            #    if (m, n, r, d) in model.level:
+            #        lhs += model.level[m,n,r,d]
+            #        ''' rhs '''
+            #        for ship in ship_schedule.keys():
+            #            for cmc in cmcS[ship]['ALL_CMCs']:
+            #                rhs += cmc[m]*model.cmc[ship, cmc['CMC'], d, r] 
+            #        
+            #        ''' add constraints '''
+            #        model.constraints.add(lhs<= rhs)
+            if (m,r,d) in model.finished:
+                ''' lhs '''
+                lhs =sum(model.level[m,n,r,d] for n in missionNums if (m,n,r,d) in model.level)
+                ''' rhs '''
+                rhs = sum(cmc[m]*model.cmc[ship, cmc['CMC'], d, r] for ship in ship_schedule.keys() for cmc in cmcS[ship]['ALL_CMCs']) 
+                ''' add constraints '''
+                model.constraints.add(lhs <= rhs)
+
 
 ### We have completed a task with somemission type, at some region, and some day...(T4hall)
 for m in missionTypes:
     for r in regions:
         for d in days:
             ''' lhs '''
-            for n in missionNums:
-                if (m, n, r, d) in model.level:
-                    lhs = model.finished[m,r,d]
-                    ''' rhs '''
-                    rhs = sum(model.level[m,n,r,d] for n in missionNums if (m, n, r, d) in model.level)
-                    '''add constraint'''
-                    model.constraints.add(lhs <= rhs)
+            if (m, r, d) in model.finished:
+                lhs = model.finished[m,r,d]
+                ''' rhs '''
+                rhs = sum(model.level[m,n,r,d] for n in missionNums if (m, n, r, d) in model.level )
+                '''add constraint'''
+                model.constraints.add(lhs <= rhs)
 
 ### dependencies...(T5hall)
 for m in missionTypes:
@@ -313,8 +423,13 @@ for m in missionTypes:
             for d in days:
                 ''' '''
                 for m2 in missionTypes:
-                    if (m, n, r, d) in model.level and (m2, n, r, d) in model.level and (m, m2) in Qrd:
+                    # THE SECOND N NEEDS TO CHANGE DUDE
+                    if (m, n, r, d) in model.level and (m2, r, d) in model.finished and (m, m2) in Qrd[(r, d)]:
+                        #if ('SUW','m76','r13',10) == (m,n,r,d) or ('AD','r13',10) == (m2,r,d):
+                        #    pdb.set_trace()
                         model.constraints.add( model.level[m, n, r, d] <= model.finished[m2, r, d])
+                        
+
 
 ### add objective function
 
@@ -332,8 +447,37 @@ model.obj = Objective(rule=obj_rule, sense=maximize)
 from codetiming import Timer
 
 opt = SolverFactory('cbc')
-results = opt.solve(model)
-# model.solutions.store_to(results)
+results = opt.solve(model, tee=True)
+model.solutions.store_to(results)
 results.write()
-pdb.set_trace()
 
+
+# Test functions
+testa = get_ship_schedules(model.schedule)
+testb = get_cmc_assigned(model.cmc)
+testc= get_accomplishLevel(model.level)
+# for row in testc.items(): print(row)
+
+testd= get_finishedMissions(model.finished)
+# debug for finished mission types
+#for m in missionTypes:
+#    for r in regions:
+#        for d in days:
+#            ''' '''
+#            if (m,r,d) in model.finished:
+#                print(model.finished[m,r,d].value)
+# Add a progress bar for each mission
+
+# Save results
+#global ship_speed, shipLimit, dayHorizon, schedule_limit
+pdb.set_trace()
+import cloudpickle
+filename = "./pickle/spd" + '%i' % ship_speed
+filename += '_ships' + '%i' % len(shipList)
+filename += '_days' + '%i' % dayHorizon 
+filename += '_schedules' + '%i' % schedule_limit + '.pkl'
+with open(filename, mode='wb') as file: cloudpickle.dump(model,file)
+
+# To reload
+#with open('test.pkl', mode='rb') as file: model = cloudpickle.load(file)
+pdb.set_trace()
