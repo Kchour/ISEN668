@@ -9,7 +9,7 @@ import random as rdm
 import numpy as np
 from optim_utils import *
 
-global ship_speed, shipLimit, dayHorizon, schedule_limit
+global ship_speed, shipLimit, dayHorizon, schedule_limit, filename
 
 #### LOAD MISSION SET
 path = "./mission_set.ods"
@@ -108,9 +108,13 @@ def generate_asp(regions):
 
 ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
-#shipLimit = 18      #18 SHIPS IS THE MAX. This function is done outside now
+shipLimit = 18      #18 SHIPS IS THE MAX. This function is done outside now
 dayHorizon = 15
 schedule_limit = 10 #100,1000,50000 limit the number of schedules generated
+filename = "./pickle/spd" + '%i' % ship_speed
+filename += '_ships' + '%i' % shipLimit
+filename += '_days' + '%i' % dayHorizon 
+filename += '_schedules' + '%i' % schedule_limit + '.pkl'
 def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=False):
     global ship_speed, shipLimit, dayHorizon, schedule_limit
     #### GENERATE SCHEDULES
@@ -133,6 +137,7 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
         Also:
         -When in Transit, add rTransit region
     '''
+    excelFileName_ = filename + ".xlsx"
     if regenerate==True:
         ship_schedule = {index:[] for index, info in dfShips.iterrows() if info["Avail"] == 'x'}
         # convert ship info to dict for ease of use
@@ -228,7 +233,8 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
                 # ship_inst += 1
     else:
         #READ schedules from disk if they exist
-        test = pd.read_excel("Schedule_10.xlsx")
+        #test = pd.read_excel("Schedule_10.xlsx")
+        test = pd.read_excel(excelFileName_)
         ship_schedule = test.to_dict('list')
 
         # remote 'quotes' from read schedules
@@ -241,7 +247,8 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
     # Save schedules to disk
     if saveToDisk == True and regenerate == True:
         dfSave = pd.DataFrame.from_dict(ship_schedule)
-        dfSave.to_excel("Schedule_10.xlsx", index=False)
+        #dfSave.to_excel("Schedule_10.xlsx", index=False)
+        dfSave.to_excel(excelFileName_, index=False)
     
     return ship_schedule
 #### Define Data for modeling
@@ -284,7 +291,7 @@ for n, nInfo in dfMission.iterrows():
         valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
 
 # get a list of ships
-shipList = get_ships(18)
+shipList = get_ships(shipLimit)
 
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
@@ -443,11 +450,11 @@ model.obj = Objective(rule=obj_rule, sense=maximize)
 
 
 ### Solve the problem
-# TIMING CODE
-from codetiming import Timer
 
+pdb.set_trace()
 opt = SolverFactory('cbc')
 results = opt.solve(model, tee=True)
+# store results back in model for ease of access
 model.solutions.store_to(results)
 results.write()
 
@@ -468,15 +475,16 @@ testd= get_finishedMissions(model.finished)
 #                print(model.finished[m,r,d].value)
 # Add a progress bar for each mission
 
-# Save results
+# Save model and results
 #global ship_speed, shipLimit, dayHorizon, schedule_limit
 pdb.set_trace()
 import cloudpickle
-filename = "./pickle/spd" + '%i' % ship_speed
-filename += '_ships' + '%i' % len(shipList)
-filename += '_days' + '%i' % dayHorizon 
-filename += '_schedules' + '%i' % schedule_limit + '.pkl'
+#filename = "./pickle/spd" + '%i' % ship_speed
+#filename += '_ships' + '%i' % len(shipList)
+#filename += '_days' + '%i' % dayHorizon 
+#filename += '_schedules' + '%i' % schedule_limit + '.pkl'
 with open(filename, mode='wb') as file: cloudpickle.dump(model,file)
+with open(filename+'.result', mode='wb') as file: cloudpickle.dump(results,file)
 
 # To reload
 #with open('test.pkl', mode='rb') as file: model = cloudpickle.load(file)
