@@ -4,9 +4,9 @@ import cloudpickle
 from optim_utils import *
 import pandas as pd
 
-method = 'NETW' # NETW, GEN
+method = 'GEN' # NETW, GEN
 shipSpeed = 16
-shipLimit = 18
+shipLimit = 3
 dayHorizon = 15
 scheduleLimit = 10
 
@@ -59,7 +59,7 @@ pdb.set_trace()
 ## Get results from model
 # get ship names, just build a dictionary for now
 
-shipSchedule = get_ship_schedules(model.schedule)
+shipSchedule = get_ship_schedules(model.schedule, method)
 cmcAssigned = get_cmc_assigned(model.cmc)
 accompLevel = get_accomplishLevel(model.level)
 finishedMiss = get_finishedMissions(model.finished)
@@ -96,25 +96,29 @@ for ship in shipScheduleActual.keys():
         delta = 1   #all actions consume at least a day
         # figure out how many days in same place
         currentReg = eval(shipScheduleActual[ship])[startDay-1]
-        for j in range(startDay-1, dayHorizon-1):
-            nextReg = eval(shipScheduleActual[ship])[j+1]
-            if currentReg == nextReg:
-               delta += 1
-            else:
-                break
-        dayFinish = startDay + delta
-        
-        #df.append(dict(Task=ship, Start=i, Finish=i+1), CMC=cmcAssigned[ship][i])
-        df.append(dict(Task=ship, Start=startDay, Finish=dayFinish, Region=currentReg))
-        #annots.append(dict(x = startDay+ (dayFinish-startDay)/2.0, y = shipLimit-shipInst-1, text=currentReg, showarrow=False, font=dict(color='white')))
-        
-        # label with cmc instead
-        if startDay in cmcAssigned[ship]:
-            annots.append(dict(x = startDay+ (dayFinish-startDay)/2.0, y = shipLimit-shipInst-1, text=cmcAssigned[ship][startDay][0], showarrow=False, font=dict(color='white')))
+        if currentReg == 'None':
+            startDay += 1
         else:
-            annots.append(dict(x = startDay+ (dayFinish-startDay)/2.0, y = shipLimit-shipInst-1, text="Transit", showarrow=False, font=dict(color='white')))
+            for j in range(startDay-1, dayHorizon-1):
+                nextReg = eval(shipScheduleActual[ship])[j+1]
+                if currentReg == nextReg:
+                   delta += 1
+                else:
+                    break
+            dayFinish = startDay + delta
 
-        startDay = dayFinish    #next tasks starts immediately
+
+            #df.append(dict(Task=ship, Start=i, Finish=i+1), CMC=cmcAssigned[ship][i])
+            df.append(dict(Task=ship, Start=startDay, Finish=dayFinish, Region=currentReg))
+            #annots.append(dict(x = startDay+ (dayFinish-startDay)/2.0, y = shipLimit-shipInst-1, text=currentReg, showarrow=False, font=dict(color='white')))
+            
+            # label with cmc instead
+            if startDay in cmcAssigned[ship]:
+                annots.append(dict(x = startDay+ (dayFinish-startDay)/2.0, y = shipLimit-shipInst-1, text=cmcAssigned[ship][startDay][0], showarrow=False, font=dict(color='white')))
+            else:
+                annots.append(dict(x = startDay+ (dayFinish-startDay)/2.0, y = shipLimit-shipInst-1, text="Transit", showarrow=False, font=dict(color='white')))
+
+            startDay = dayFinish    #next tasks starts immediately
 
 
     shipInst+=1

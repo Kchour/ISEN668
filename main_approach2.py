@@ -105,7 +105,7 @@ def generate_asp(regions):
         asp.update({r1: optimal_cost})
     return asp
 
-method = 'GEN' # NETW, GEN: will employ network flow or schedule generation approach
+method = 'NETW' # NETW, GEN: will employ network flow or schedule generation approach
 ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
 shipLimit = 3      #3,18 SHIPS IS THE MAX. This function is done outside now
@@ -307,13 +307,25 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                         break
                 # draw arcs between regions between 1 consecutive day 
                 if len(nextDayList)>0:
-                    for f in nextDayList:
-                        networkSRD.append((ship, day, region, day+1, f))
+                    # Allow initial condition to go to any other day
+                    if day==0:
+                        for k in range(0, dayLength):
+                            for f in nextDayList:
+                                networkSRD.append((ship, 0, region, k+1, f))
+                    else:
+                        for f in nextDayList:
+                            networkSRD.append((ship, day, region, day+1, f))
                 if len(transitList) > 0:
-                    # Transit list
+                    # Transit list, dont end on transit for start of day 15
                     if day < dayLength:
-                        for f in transitList:
-                            networkSRD.append((ship, day+1, 'rTransit', day+2, f))
+                        # Allow initial condition to go to any other day
+                        if day==0:
+                            for k in range(0, dayLength-1):
+                                for f in transitList:
+                                    networkSRD.append((ship, k+1, 'rTransit', k+2, f))
+                        else:
+                            for f in transitList:
+                                networkSRD.append((ship, day+1, 'rTransit', day+2, f))
     pdb.set_trace()
     return networkSRD
 #### Define Data for modeling
@@ -397,13 +409,10 @@ srd = generate_feasible_srd(shipList, cmcS, mnrd)
 ## GET SCHEDULES
 # RETRIEVE CANDIDATE SCHEDULES USING GEN METHOD
 if method == "GEN":
-    pdb.set_trace()
     ship_schedule = generate_schedules(dfShips, asp, shipList, regenerate=True, saveToDisk=True)
 # NETWORK FLOW FOR SCHEDULES
 elif method == "NETW":
     networkSRD = network_flow_genSchedules(shipList, days, regions, ship_speed, cutoff_frac, asp)  
-pdb.set_trace()
-
 #### BUILD MODEL FOR SOLVING
 ''' TO debug model do:
     model.pprint()
@@ -424,7 +433,7 @@ elif method == "NETW":
     model.schedule = Var( (row[0], row[1], row[2], row[3], row[4]) for row in networkSRD)
 
 # binary variables for concurrent mission selection. Indexed by ship, cmc#, day, and region (W)
-model.cmc = Var( ((ship, cmc['CMC'], day, region) for ship in ship_schedule.keys() for cmc in cmcS[ship]['ALL_CMCs'] for day in days for region in regions), within=Binary, initialize=0)
+model.cmc = Var( ((ship, cmc['CMC'], day, region) for ship in shipList for cmc in cmcS[ship]['ALL_CMCs'] for day in days for region in regions), within=Binary, initialize=0)
 
 # continuous variables up to 1 for accomplishment level
 model.level = Var((row[0] for row in mnrd), bounds = (0, 1), initialize=0)
@@ -444,11 +453,46 @@ if method == "GEN":
              sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])))<=1 
         )
 elif method == "NETW":
+    networkSRDproc = {}
+    pdb.set_trace()
+    for row in networkSRD:
+        ship = row[0]
+        fromNode = (ship, row[1], row[2])   #origin
+        toNode = (ship, row[3], row[4]) #destination
+        
+        # Figure out all outgoing/incoming arcs from origin
+        try:
+            fromNode_Out = networkSRDproc[fromNode]['out'][:]
+            fromNode_Out.append( (row[3], row[4] ))
+        except:
+            fromNode_Out = [(row[3], row[4])]
+        try: 
+            fromNode_In = networkSRDproc[fromNode]['in'][:]
+        except:
+            fromNode_In = []
+        networkSRDproc.update({fromNode: {'out': fromNode_Out, 'in': fromNode_In}})
+        
+        # Figure out all outgoing/incoming arcs from destination
+        try:
+            toNode_In = networkSRDproc[toNode]['in']
+            toNode_In.append(   (row[1], row[2]))
+        except: 
+            toNode_In = [(row[1], row[2])]
+        try:
+            # we dont know where the out node goes, so just copy whatever is already there
+            toNode_Out = networkSRDproc[toNode]['out']
+        except: 
+            toNode_Out = []
+        networkSRDproc.update({toNode: {'out': toNode_Out, 'in': toNode_In}})
+
+
+    pdb.set_trace()
     for ship in shipList:
         for day in days:
             for region in regions:
-                pass  
-
+                #get all outgoing arcs
+                pass
+                #get all incoming nodes
 
     
 # For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
