@@ -310,7 +310,7 @@ class MyGraph:
 
     '''neighbors returns a list [] '''
     def neighbors(self, v):
-        # Create a list of egdes containing v
+        # Create a list of edges containing v
         edgeList = [key for key, val in self.edge_dict.items() if v in key]
 
 
