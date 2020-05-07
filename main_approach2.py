@@ -110,9 +110,9 @@ def generate_asp(regions):
 method = 'NETW' # NETW, GEN: will employ network flow or schedule generation approach
 ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
-shipLimit = 3      #3,18 SHIPS IS THE MAX. This function is done outside now
+shipLimit = 1      #3,18 SHIPS IS THE MAX. This function is done outside now
 dayHorizon = 15
-schedule_limit = 10 # 5, 10, 50 limit the number of schedules generated
+schedule_limit = 10 # 5, 10, 50 limit the number of schedules generated, if using GEN method
 filename = "./pickle/spd" + '%i' % ship_speed
 filename += '_ships' + '%i' % shipLimit
 filename += '_days' + '%i' % dayHorizon 
@@ -265,77 +265,114 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
     ''' Create all the edges in our network'''
     networkSRD = []
     graph = MyGraph(edgeDict)
-    # Potential locations
-    potentials = regions[:]         #deep copy
-    potentials.append('rTransit')
-    # Include intial condition, day = 0
-    dayLength = len(days)
-    days.insert(0, 0)
+
+    #expand region with 'rTransit'
+    #expand days with 0
+    days_ = days[:]
+    days_.insert(0,0)
+
+    #regions_ = regions[:]
+    #regions_.insert(0, 'rTransit')
+
     for ship in ships:
-        #pdb.set_trace()
-        #for row in networkSRD:
-        #    print(row)
-        for day in range(0, dayLength):
+        for day in days_:
+            # Debug purposes
+            #for row in networkSRD:
+            #    print(row)
+            #pdb.set_trace()
             for region in regions:
-                # get neighbors of region that can be reached within a day
-                # include rTransit 
-                # Optional: include ship_srd 
-                #neighbors = graph.neighbors(region) 
-                # all nodes connected to rTransit
-                #neighbors.append('rTransit')
-                nextDayList = []
-                transitList = []
-                for n in potentials:
-                    ## TODO GET RID OF SELF LOOPS
-                    #if n != region:
-                    # dont allow transits at start of 15 day
-                    if day >= dayLength-1:
-                        if n == 'rTransit':
-                            break
-                    #compute time required to reach a neighbor
-                    if n != 'rTransit':
-                        time = asp[region][n]/shipSpeed/24.0
-                        if time-np.floor(time) <= cutOff:
-                            time = np.floor(time).astype('int')
-                        else:
-                            time = np.ceil(time).astype('int')
+                for region2 in regions:
+                    #figure out time to travel from first region to region2 
+                    time = asp[region][region2]/shipSpeed/24.0
+                    if time-np.floor(time).astype('int'):
+                        time = np.floor(time).astype('int')
                     else:
-                        time = 0.0
-                    if time < 1.0:
-                        nextDayList.append(n)
-                    elif time < 2.0:
-                        transitList.append(n)
-                        if day < dayLength-2:
-                            transitList.append('rTransit')
-                    else: 
-                        pass
-                # draw arcs between regions between 1 consecutive day 
-                if len(nextDayList)>0:
-                    # Allow initial condition to go to any other day
-                    if day==0:
-                        for k in range(0, dayLength):
-                            for f in nextDayList:
-                                networkSRD.append((ship, 0, region, k+1, f))
+                        time = np.ceil(time).astype('int')
+                    # Next region set for the next day iff only 1 day of travel required
+                    # Occupy one region per day
+                    print(region, region2, time)
+                    if time <= 1:
+                        networkSRD.append((ship, day, region, day+1, region2))
                     else:
-                        for f in nextDayList:
-                            networkSRD.append((ship, day, region, day+1, f))
-                if len(transitList) > 0:
-                    # Transit list, dont end on transit for start of day 15
-                    if day < dayLength-1:
-                        # Allow initial condition to go to any other day
-                        if day==0:
-                            for k in range(0, dayLength-1):
-                                for f in transitList:
-                                    networkSRD.append((ship, k+1, 'rTransit', k+2, f))
+                        # do transit up until the reaching day
+                        for t in range(time-1):
+                            networkSRD.append((ship, day+t, region, day+t+1, 'rTransit'))
+                        networkSRD.append((ship, day+time-1, 'rTransit', day+time, region2))
+        
+            # Allow zeroth node to reach any other node to account for ship start day
+            if day == 0:
+                networkSRD_copy = networkSRD[:]
+                for k in range(1,len(days)):
+                    for row in networkSRD_copy:
+                        zerothDaySt = row[1]
+                        zerothDayEn = row[3]
+                        if zerothDaySt != 0:
+                            networkSRD.append((ship, zerothDaySt+k , row[2], zerothDayEn+k, row[4]))
                         else:
-                            for f in transitList:
-                                networkSRD.append((ship, day+1, 'rTransit', day+2, f))
+                            networkSRD.append((ship, zerothDaySt , row[2], zerothDayEn+k, row[4]))
+
+                ## Potential locations
+                #potentials = regions[:]         #deep copy
+                #potentials.append('rTransit')
+                ## Include intial condition, day = 0
+                #dayLength = len(days)
+                ##days.insert(0, 0)
+                #for ship in ships:
+                #    #pdb.set_trace()
+                #    #for row in networkSRD:
+                #    #    print(row)
+                #    for day in range(0, dayLength+1):
+                #        for region in regions:
+                #            nextDayList = []
+                #            transitList = []
+                #            for n in potentials:
+                #                # dont allow transits at start of 15 day
+                #                if day >= dayLength-1:
+                #                    if n == 'rTransit':
+                #                        break
+                #                #compute time required to reach a destination
+                #                if n != 'rTransit':
+                #                    time = asp[region][n]/shipSpeed/24.0
+                #                    if time-np.floor(time) <= cutOff:
+                #                        time = np.floor(time).astype('int')
+                #                    else:
+                #                        time = np.ceil(time).astype('int')
+                #                else:
+                #                    time = 0.0
+                #                    
+                #                if time < 1.0:
+                #                    nextDayList.append(n)
+                #                elif time < 2.0:
+                #                    transitList.append(n)
+                #                    if day < dayLength-2:
+                #                        transitList.append('rTransit')
+                #            # draw arcs between regions between 1 consecutive day 
+                #            if len(nextDayList)>0:
+                #                # Allow initial condition to go to any other day
+                #                if day==0:
+                #                    for k in range(0, dayLength):
+                #                        for f in nextDayList:
+                #                            networkSRD.append((ship, 0, region, k+1, f))
+                #                else:
+                #                    for f in nextDayList:
+                #                        networkSRD.append((ship, day, region, day+1, f))
+                #            #if len(transitList) > 0:
+                #            #    # Transit list, dont end on transit for start of day 15
+                #            #    if day < dayLength-1:
+                #            #        # Allow initial condition to go to any other day
+                #            #        if day==0:
+                #            #            for k in range(0, dayLength-1):
+                #            #                for f in transitList:
+                #            #                    networkSRD.append((ship, k+1, 'rTransit', k+2, f))
+                #            #        #else:
+                #            #        #    for f in transitList:
+                #            #        #        networkSRD.append((ship, day+1, 'rTransit', day+2, f))
     return networkSRD
 #### Define Data for modeling
 
 ## Create some variables for ease of use
 days = np.arange(1,dayHorizon+1).tolist()                 #days 1-15  
-regions = dfRegions['Region'].tolist()          
+regions = dfRegions['Region'].tolist()[0:5]          #select some range     
 missionNums = dfMission.index.values.tolist()   #for m
 
 # Create Value data along with its indices
@@ -370,7 +407,8 @@ for n, nInfo in dfMission.iterrows():
         valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
 
 # get a list of ships
-shipList = get_ships(shipLimit)
+#shipList = get_ships(shipLimit)
+shipList = ['VellaGulf']
 
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
@@ -488,21 +526,34 @@ elif method == "NETW":
         networkSRDproc.update({toNode: {'out': toNode_Out, 'in': toNode_In}})
 
     # NOW ADD FLOW CONSTRAINTS
+    days_ = days[:]
+    days_.insert(0,0)   # start days from 0
     for ship in shipList:
-        for day in days:
+        for day in days_:
             for region in regions:
-                OutArcs = networkSRDproc[(ship, day, region)]['out']
-                InArcs = networkSRDproc[(ship, day, region)]['in']
-                ## Constraints now
-                FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if len(dest)>0 and (ship, day, region, dest[0], dest[1]) in model.schedule) 
-                FlowIn = sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if len(source)>0 and (ship, source[0], source[1], day, region) in model.schedule)
+                if day == 0:
+                    OutArcs = networkSRDproc[(ship, day, region)]['out']
+                    FlowOutStart = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule and dest[0] == dfShips.loc[ship]['Start Day'] and dest[1] == dfShips.loc[ship]['Start Region']) 
+                    FlowOutElse = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule or dest[0] != dfShips.loc[ship]['Start Day'] or dest[1] != dfShips.loc[ship]['Start Region']) 
+                    #FlowOutStart = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if len(dest)>0 and (ship, day, region, dest[0], dest[1]) in model.schedule and dest[0] != dfShips.loc[ship]['Start Day'] or dest[1] != dfShips.loc[ship]['Start Region']) 
+                    #FlowOutElse = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if len(dest)>0 and (ship, day, region, dest[0], dest[1]) in model.schedule and dest[0] == dfShips.loc[ship]['Start Day'] and dest[1] == dfShips.loc[ship]['Start Region']) 
+                    if FlowOutStart != 0:
+                        model.constraints.add(FlowOutStart == 1)
+                    if FlowOutElse != 0:
+                        model.constraints.add(FlowOutElse == 0)
+                elif day > 0 and day < days_[-1]:
+                    OutArcs = networkSRDproc[(ship, day, region)]['out']
+                    InArcs = networkSRDproc[(ship, day, region)]['in']
+                    FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule) 
+                    FlowIn = sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if (ship, source[0], source[1], day, region) in model.schedule)
                 
-                if dfShips.loc[ship]['Start Region'] == region and dfShips.loc[ship]['Start Day']==day:
-                    model.constraints.add(FlowOut - FlowIn == 1)
-                elif day == len(days):
-                    model.constraints.add(FlowOut- FlowIn <= 0) #we dont know where the destination is
-                else:
+                    #model.constraints.add(FlowOut == 1)
+                    #model.constraints.add(FlowIn == 1)
                     model.constraints.add(FlowOut - FlowIn == 0)
+                else: 
+                    InArcs = networkSRDproc[(ship, day, region)]['in']
+                    FlowIn = sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if (ship, source[0], source[1], day, region) in model.schedule)
+                    model.constraints.add(FlowIn == 1) #we dont know where the destination is
 
 if method == "GEN":
     # For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
@@ -524,7 +575,7 @@ elif method == "NETW":
                 rhs = sum(model.schedule[(ship, day, region, outarc[0], outarc[1] )] for outarc in networkSRDproc[(ship, day, region)]['out'] if len(outarc) > 0 and (ship, day, region, outarc[0], outarc[1]) in model.schedule)
                 '''add constraints '''
                 model.constraints.add(lhs <= rhs)
-                model.constraints.add(lhs <= 1.0)
+                model.constraints.add(lhs <= 1)
 
 # Accomplishment level for each m,r,d sum over n....(T3)
 for m in missionTypes:

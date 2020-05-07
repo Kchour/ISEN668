@@ -20,10 +20,11 @@ def get_ship_schedules(varSchedules, method):
                 solShipSchedule.update({ship: schedule})
     elif method == "NETW":
         path = []
+        sum_ = 0
         for row in varSchedules:
             if varSchedules[row].value == 1:
                 ship = row[0]
-                
+                sum_ +=1 
                 try: 
                     path = solShipSchedule[ship]
                     path.append(row[2])
@@ -33,6 +34,7 @@ def get_ship_schedules(varSchedules, method):
                     path.append(row[4])
                 # NEED TO ORDER THE PATH ACCORDING TO DAY
                 solShipSchedule.update({ship: path[:]}) #deep copy
+    print("path elements: ",sum_)
     return solShipSchedule
 #def get_cmc_assigned(varCMC):
 #    solShipCMC = {}
