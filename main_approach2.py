@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 ''' This script will solve a network flow formulation for schedules'''
 import pandas as pd
-import pdb
 from utils import *
 from search_algorithms import *
 import networkx as nx
 import random as rdm
 import numpy as np
 from optim_utils import *
+
+#Debugging tools
+import pdb, traceback, sys
 
 global ship_speed, shipLimit, dayHorizon, schedule_limit, filename
 
@@ -273,7 +275,7 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
         #pdb.set_trace()
         #for row in networkSRD:
         #    print(row)
-        for day in days:
+        for day in range(0, dayLength):
             for region in regions:
                 # get neighbors of region that can be reached within a day
                 # include rTransit 
@@ -287,7 +289,7 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                     ## TODO GET RID OF SELF LOOPS
                     #if n != region:
                     # dont allow transits at start of 15 day
-                    if day == dayLength:
+                    if day >= dayLength-1:
                         if n == 'rTransit':
                             break
                     #compute time required to reach a neighbor
@@ -303,8 +305,10 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                         nextDayList.append(n)
                     elif time < 2.0:
                         transitList.append(n)
+                        if day < dayLength-2:
+                            transitList.append('rTransit')
                     else: 
-                        break
+                        pass
                 # draw arcs between regions between 1 consecutive day 
                 if len(nextDayList)>0:
                     # Allow initial condition to go to any other day
@@ -317,7 +321,7 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                             networkSRD.append((ship, day, region, day+1, f))
                 if len(transitList) > 0:
                     # Transit list, dont end on transit for start of day 15
-                    if day < dayLength:
+                    if day < dayLength-1:
                         # Allow initial condition to go to any other day
                         if day==0:
                             for k in range(0, dayLength-1):
@@ -326,7 +330,6 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                         else:
                             for f in transitList:
                                 networkSRD.append((ship, day+1, 'rTransit', day+2, f))
-    pdb.set_trace()
     return networkSRD
 #### Define Data for modeling
 
@@ -358,7 +361,6 @@ for n, nInfo in dfMission.iterrows():
             temp.append((nInfo['Type'], nInfo['Unnamed: 8']))
             Qrd.update({ (nInfo['Region'], d): temp})
 
-        
         temp.append((nInfo['Type'], nInfo['Required']))
         temp.append((nInfo['Type'], nInfo['Unnamed: 8']))
         Qrd.update({ (nInfo['Region'], d): temp})
@@ -430,7 +432,7 @@ if method=="GEN":
     # binary variable for schedule selected for ship (Y_{ps})
     model.schedule = Var( ((ship, schedule) for ship in ship_schedule.keys() for schedule in range(len(ship_schedule[ship]))), within=Binary, initialize=0)
 elif method == "NETW":
-    model.schedule = Var( (row[0], row[1], row[2], row[3], row[4]) for row in networkSRD)
+    model.schedule = Var( ((row[0], row[1], row[2], row[3], row[4]) for row in networkSRD), within=Binary, initialize=0)
 
 # binary variables for concurrent mission selection. Indexed by ship, cmc#, day, and region (W)
 model.cmc = Var( ((ship, cmc['CMC'], day, region) for ship in shipList for cmc in cmcS[ship]['ALL_CMCs'] for day in days for region in regions), within=Binary, initialize=0)
@@ -453,8 +455,8 @@ if method == "GEN":
              sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])))<=1 
         )
 elif method == "NETW":
+    # DEFINE OUT AND IN ARCS FROM EVERY NODE (SRD)
     networkSRDproc = {}
-    pdb.set_trace()
     for row in networkSRD:
         ship = row[0]
         fromNode = (ship, row[1], row[2])   #origin
@@ -485,57 +487,54 @@ elif method == "NETW":
             toNode_Out = []
         networkSRDproc.update({toNode: {'out': toNode_Out, 'in': toNode_In}})
 
-
-    pdb.set_trace()
+    # NOW ADD FLOW CONSTRAINTS
     for ship in shipList:
         for day in days:
             for region in regions:
-                #get all outgoing arcs
-                pass
-                #get all incoming nodes
+                OutArcs = networkSRDproc[(ship, day, region)]['out']
+                InArcs = networkSRDproc[(ship, day, region)]['in']
+                ## Constraints now
+                FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if len(dest)>0 and (ship, day, region, dest[0], dest[1]) in model.schedule) 
+                FlowIn = sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if len(source)>0 and (ship, source[0], source[1], day, region) in model.schedule)
+                
+                if dfShips.loc[ship]['Start Region'] == region and dfShips.loc[ship]['Start Day']==day:
+                    model.constraints.add(FlowOut - FlowIn == 1)
+                elif day == len(days):
+                    model.constraints.add(FlowOut- FlowIn <= 0) #we dont know where the destination is
+                else:
+                    model.constraints.add(FlowOut - FlowIn == 0)
 
-    
-# For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
-for ship in ship_schedule.keys():
-    for day in days:
-        for region in regions:
-            ''' lhs '''
-            lhs = sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'])
-            ''' rhs '''
-            rhs = sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day-1] == region)
-            model.constraints.add(lhs == rhs) 
-            #for schedule in range(len(ship_schedule[ship])):
-            #    # need to use day-1 for index purposes
-            #    if ship_schedule[ship][schedule][day-1]==region:
-            #        #model.schedule[ship, schedule].pprint()
-            # Sum lhs over cmcs availbe for ship
-            #model.constraints.add(
-            #    sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'] ) <= sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day]==region )
-            #)
+if method == "GEN":
+    # For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
+    for ship in ship_schedule.keys():
+        for day in days:
+            for region in regions:
+                ''' lhs '''
+                lhs = sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'])
+                ''' rhs '''
+                rhs = sum(model.schedule[ship, schedule] for schedule in range(len(ship_schedule[ship])) if ship_schedule[ship][schedule][day-1] == region)
+                model.constraints.add(lhs == rhs) 
+elif method == "NETW":
+    for ship in shipList:
+        for day in days:
+            for region in regions:
+                '''lhs same as above'''
+                lhs = sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'])
+                ''' rhs '''
+                rhs = sum(model.schedule[(ship, day, region, outarc[0], outarc[1] )] for outarc in networkSRDproc[(ship, day, region)]['out'] if len(outarc) > 0 and (ship, day, region, outarc[0], outarc[1]) in model.schedule)
+                '''add constraints '''
+                model.constraints.add(lhs <= rhs)
+                model.constraints.add(lhs <= 1.0)
 
 # Accomplishment level for each m,r,d sum over n....(T3)
 for m in missionTypes:
     for r in regions:
         for d in days:
-            ''' old implementation'''
-            #''' lhs '''
-            #lhs = 0
-            #rhs = 0
-            #for n in missionNums:
-            #    if (m, n, r, d) in model.level:
-            #        lhs += model.level[m,n,r,d]
-            #        ''' rhs '''
-            #        for ship in ship_schedule.keys():
-            #            for cmc in cmcS[ship]['ALL_CMCs']:
-            #                rhs += cmc[m]*model.cmc[ship, cmc['CMC'], d, r] 
-            #        
-            #        ''' add constraints '''
-            #        model.constraints.add(lhs<= rhs)
             if (m,r,d) in model.finished:
                 ''' lhs '''
                 lhs =sum(model.level[m,n,r,d] for n in missionNums if (m,n,r,d) in model.level)
                 ''' rhs '''
-                rhs = sum(cmc[m]*model.cmc[ship, cmc['CMC'], d, r] for ship in ship_schedule.keys() for cmc in cmcS[ship]['ALL_CMCs']) 
+                rhs = sum(cmc[m]*model.cmc[ship, cmc['CMC'], d, r] for ship in shipList for cmc in cmcS[ship]['ALL_CMCs']) 
                 ''' add constraints '''
                 model.constraints.add(lhs <= rhs)
 

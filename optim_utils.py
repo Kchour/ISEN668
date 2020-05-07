@@ -1,3 +1,4 @@
+import pdb
 ### older functions process results
 #def get_ship_schedules(varSchedules):
 #    solShipSchedule = {}
@@ -9,7 +10,6 @@
 #
 
 def get_ship_schedules(varSchedules, method):
-    
     solShipSchedule = {}
     if method == "GEN":
         # WHEN FORMAT WAS GEN SCHEDULES
@@ -19,10 +19,20 @@ def get_ship_schedules(varSchedules, method):
                 schedule = row[1]
                 solShipSchedule.update({ship: schedule})
     elif method == "NETW":
+        path = []
         for row in varSchedules:
             if varSchedules[row].value == 1:
-                # TODO: we need to reconstruct the schedule...
                 ship = row[0]
+                
+                try: 
+                    path = solShipSchedule[ship]
+                    path.append(row[2])
+                    path.append(row[4])
+                except:
+                    path.append(row[2])
+                    path.append(row[4])
+                # NEED TO ORDER THE PATH ACCORDING TO DAY
+                solShipSchedule.update({ship: path[:]}) #deep copy
     return solShipSchedule
 #def get_cmc_assigned(varCMC):
 #    solShipCMC = {}
