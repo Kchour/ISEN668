@@ -275,7 +275,7 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
     #regions_.insert(0, 'rTransit')
 
     for ship in ships:
-        for day in days_:
+        for day in days[0:-1]:
             # Debug purposes
             #for row in networkSRD:
             #    print(row)
@@ -299,17 +299,17 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                             networkSRD.append((ship, day+t, region, day+t+1, 'rTransit'))
                         networkSRD.append((ship, day+time-1, 'rTransit', day+time, region2))
         
-            # Allow zeroth node to reach any other node to account for ship start day
-            if day == 0:
-                networkSRD_copy = networkSRD[:]
-                for k in range(1,len(days)):
-                    for row in networkSRD_copy:
-                        zerothDaySt = row[1]
-                        zerothDayEn = row[3]
-                        if zerothDaySt != 0:
-                            networkSRD.append((ship, zerothDaySt+k , row[2], zerothDayEn+k, row[4]))
-                        else:
-                            networkSRD.append((ship, zerothDaySt , row[2], zerothDayEn+k, row[4]))
+                ## Allow zeroth node to reach any other node to account for ship start day
+                #if day == 0:
+                #    networkSRD_copy = networkSRD[:]
+                #    for k in range(1,len(days)):
+                #        for row in networkSRD_copy:
+                #            zerothDaySt = row[1]
+                #            zerothDayEn = row[3]
+                #            if zerothDaySt != 0:
+                #                networkSRD.append((ship, zerothDaySt+k , row[2], zerothDayEn+k, row[4]))
+                #            else:
+                #                networkSRD.append((ship, zerothDaySt , row[2], zerothDayEn+k, row[4]))
 
                 ## Potential locations
                 #potentials = regions[:]         #deep copy
@@ -372,7 +372,7 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
 
 ## Create some variables for ease of use
 days = np.arange(1,dayHorizon+1).tolist()                 #days 1-15  
-regions = dfRegions['Region'].tolist()[0:5]          #select some range     
+regions = dfRegions['Region'].tolist()[0:16]          #select some range     
 missionNums = dfMission.index.values.tolist()   #for m
 
 # Create Value data along with its indices
@@ -407,8 +407,8 @@ for n, nInfo in dfMission.iterrows():
         valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
 
 # get a list of ships
-#shipList = get_ships(shipLimit)
-shipList = ['VellaGulf']
+shipList = get_ships(shipLimit)
+#shipList = ['VellaGulf']
 
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
@@ -529,31 +529,26 @@ elif method == "NETW":
     days_ = days[:]
     days_.insert(0,0)   # start days from 0
     for ship in shipList:
-        for day in days_:
+        finalFlowOut = 0
+        for day in days:
             for region in regions:
-                if day == 0:
+                # for now assume start day is 1
+                # TODO: Need to add transit as an option
+                if region == dfShips.loc[ship]['Start Region'] and day == dfShips.loc[ship]['Start Day']:
                     OutArcs = networkSRDproc[(ship, day, region)]['out']
-                    FlowOutStart = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule and dest[0] == dfShips.loc[ship]['Start Day'] and dest[1] == dfShips.loc[ship]['Start Region']) 
-                    FlowOutElse = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule or dest[0] != dfShips.loc[ship]['Start Day'] or dest[1] != dfShips.loc[ship]['Start Region']) 
-                    #FlowOutStart = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if len(dest)>0 and (ship, day, region, dest[0], dest[1]) in model.schedule and dest[0] != dfShips.loc[ship]['Start Day'] or dest[1] != dfShips.loc[ship]['Start Region']) 
-                    #FlowOutElse = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if len(dest)>0 and (ship, day, region, dest[0], dest[1]) in model.schedule and dest[0] == dfShips.loc[ship]['Start Day'] and dest[1] == dfShips.loc[ship]['Start Region']) 
-                    if FlowOutStart != 0:
-                        model.constraints.add(FlowOutStart == 1)
-                    if FlowOutElse != 0:
-                        model.constraints.add(FlowOutElse == 0)
-                elif day > 0 and day < days_[-1]:
+                    FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule)
+                    model.constraints.add(FlowOut == 1)
+                elif day < len(days)-1:
                     OutArcs = networkSRDproc[(ship, day, region)]['out']
                     InArcs = networkSRDproc[(ship, day, region)]['in']
                     FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule) 
                     FlowIn = sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if (ship, source[0], source[1], day, region) in model.schedule)
-                
-                    #model.constraints.add(FlowOut == 1)
-                    #model.constraints.add(FlowIn == 1)
                     model.constraints.add(FlowOut - FlowIn == 0)
-                else: 
-                    InArcs = networkSRDproc[(ship, day, region)]['in']
-                    FlowIn = sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if (ship, source[0], source[1], day, region) in model.schedule)
-                    model.constraints.add(FlowIn == 1) #we dont know where the destination is
+                else:
+                    OutArcs = networkSRDproc[(ship, day, region)]['out']
+                    finalFlowOut += sum(model.schedule[(ship, day, region, dest[0], dest[1])] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule)
+        # add final constraints
+        model.constraints.add(finalFlowOut == 1)
 
 if method == "GEN":
     # For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
