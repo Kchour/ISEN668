@@ -7,6 +7,7 @@ from scipy.spatial import ConvexHull
 import alphashape
 import elkai
 np.set_printoptions(suppress=True)
+import copy #for deep copy purposes
 
 import sys
 np.set_printoptions(threshold=sys.maxsize)
@@ -305,6 +306,11 @@ class MyGraph:
     def __init__(self, edge_dict):
         '''edge_dict: is dict containing all edges and weights
                       {('v1', 'v2'): 5.0}
+
+		edges = [('v1', 'v2'), ('v1','v3')]
+		weights = [0.5, 0.4]
+
+		g = MyGraph()
         '''
         self.edge_dict = edge_dict 
 
@@ -385,7 +391,6 @@ def lkh_solve(array, dummy=None):
     return r_order
 
 ##### We will implement a class that keeps track of our tree using a hash table
-import copy
 class MyTree:
     def __init__(self):
         self.tree = {}
@@ -483,7 +488,7 @@ def pyomo_floor(m):
     #        results.solution[0]['Variable'][v]['Value'] = np.floor(results.solution[0]['Variable'][v]['Value'])
     return model
 
-import copy
+
 def pyomo_nonInteger_var(model):
     #return all nonInteger variables
     arr = []

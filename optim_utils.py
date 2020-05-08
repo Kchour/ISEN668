@@ -1,5 +1,8 @@
 import pdb
 import copy #for dep copy purposes
+
+# This script is used to grab data from the optimization results
+
 ### older functions process results
 #def get_ship_schedules(varSchedules):
 #    solShipSchedule = {}

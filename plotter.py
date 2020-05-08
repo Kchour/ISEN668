@@ -13,13 +13,13 @@ import pandas as pd
              GEN        16              18          15              5               Y/N
              GEN        16              18          15              10
              GEN        16              18          15              15
-             GEN        16              1           15              5               BB case
+             GEN        16              1           5              5               BB case
 '''    
 method = 'NETW' # NETW, GEN
 scheduleLimit = 5  #Only relevant to GEN
 shipSpeed = 16
-shipLimit = 3
-dayHorizon = 15
+shipLimit = 1
+dayHorizon = 5
 BB = True       # USE BB RESULTS?
 
 if method == "GEN":

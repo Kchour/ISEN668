@@ -689,8 +689,6 @@ while len(Tree.tree.keys()) != 0:
 
             # Delete Node
             Tree.delete_node(node)
-    
-
 
                 
 # Save model and results
