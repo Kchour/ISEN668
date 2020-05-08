@@ -3,20 +3,47 @@ import pdb
 import cloudpickle
 from optim_utils import *
 import pandas as pd
-
-method = 'GEN' # NETW, GEN
+'''Case 1:   method     shipSpeed     shipLimit     dayHorizon  scheduleLimit   GotData/Proc?
+             NETW       16              18          15              -               Y/N
+             NETW       16              3           15              -               Y/N
+             NETW       16              1           15              -               DEBUG
+             GEN        16              3           15              5
+             GEN        16              3           15              10
+             GEN        16              3           15              15
+             GEN        16              18          15              5               Y/N
+             GEN        16              18          15              10
+             GEN        16              18          15              15
+             GEN        16              1           15              5               BB case
+'''    
+method = 'NETW' # NETW, GEN
+scheduleLimit = 5  #Only relevant to GEN
 shipSpeed = 16
 shipLimit = 3
 dayHorizon = 15
-scheduleLimit = 10
+BB = True       # USE BB RESULTS?
 
-filename = "./pickle/spd" + '%i' % shipSpeed
-filename += '_ships' + '%i' % shipLimit
-filename += '_days' + '%i' % dayHorizon 
-filename += '_method' + method  #RENAME SOME FILES 
-filename += '_schedules' + '%i' % scheduleLimit + '.pkl'
-with open(filename, mode='rb') as file: model = cloudpickle.load(file)
-with open(filename+'.result', mode='rb') as file: optResults = cloudpickle.load(file)
+if method == "GEN":
+    filename = "./pickle/spd" + '%i' % shipSpeed
+    filename += '_ships' + '%i' % shipLimit
+    filename += '_days' + '%i' % dayHorizon 
+    filename += '_method' + method
+    filename += '_schedules' + '%i' % scheduleLimit
+elif method == 'NETW':
+    filename = "./pickle/spd" + '%i' % shipSpeed
+    filename += '_ships' + '%i' % shipLimit
+    filename += '_days' + '%i' % dayHorizon 
+    filename += '_method' + method
+#filename = "./pickle/spd" + '%i' % shipSpeed
+#filename += '_ships' + '%i' % shipLimit
+#filename += '_days' + '%i' % dayHorizon 
+#filename += '_method' + method  #RENAME SOME FILES 
+#filename += '_schedules' + '%i' % scheduleLimit + '.pkl'
+if BB==True:
+    with open(filename+'.bb.model.pkl', mode='rb') as file: model = cloudpickle.load(file)
+    with open(filename+'.bb.result.pkl', mode='rb') as file: optResults = cloudpickle.load(file)
+else:
+    with open(filename+'.model.pkl', mode='rb') as file: model = cloudpickle.load(file)
+    with open(filename+'.result.pkl', mode='rb') as file: optResults = cloudpickle.load(file)
 
 # See statistics
 #optResults.Problem[0]
@@ -31,7 +58,7 @@ with open(filename+'.result', mode='rb') as file: optResults = cloudpickle.load(
 ###Number of continuous variables
 ###Number of nonzeros
 ###Sense
-#optResults.Solution[0]
+#optResults.Solver[0]
 ####Name
 ####Status
 ####Return code
@@ -44,7 +71,7 @@ with open(filename+'.result', mode='rb') as file: optResults = cloudpickle.load(
 ####Statistics
 ####Error rc
 ####Time
-#optResults.Solver[0]
+#optResults.Solution[0]
 ####Gap
 ####Status
 ####Message
@@ -52,30 +79,31 @@ with open(filename+'.result', mode='rb') as file: optResults = cloudpickle.load(
 ####Objective
 ####Variable
 ####Constraint
-pdb.set_trace()
 
 ## use object.__dict__ to see all members
 
 ## Get results from model
 # get ship names, just build a dictionary for now
 
-shipSchedule = get_ship_schedules(model.schedule, method)
 cmcAssigned = get_cmc_assigned(model.cmc)
 accompLevel = get_accomplishLevel(model.level)
 finishedMiss = get_finishedMissions(model.finished)
 
 # Load generated schedules from spreadsheet (heuristic approach)
-excelFileName_ = filename + ".xlsx"
-dfExcel = pd.read_excel(excelFileName_)
-genSchedules = dfExcel.to_dict('list')
+if method == "GEN":
+    shipSchedule = get_ship_schedules(model.schedule, method, dayHorizon)
+    excelFileName_ = filename + ".xlsx"
+    dfExcel = pd.read_excel(excelFileName_)
+    genSchedules = dfExcel.to_dict('list')
 
-#Lookup shipSchedule from generated ones
-shipScheduleActual = {}
-for i in shipSchedule.keys():
-    sn = shipSchedule[i]                 #schedule number
-    sA = genSchedules[i][sn]             #actual schedule
-    shipScheduleActual.update({i: sA})   #update dict
-
+    #Lookup shipSchedule from generated ones
+    shipScheduleActual = {}
+    for i in shipSchedule.keys():
+        sn = shipSchedule[i]                 #schedule number
+        sA = genSchedules[i][sn]             #actual schedule
+        shipScheduleActual.update({i: eval(sA)})   #update dict
+else:
+    shipScheduleActual = get_ship_schedules(model.schedule, method, dayHorizon)
 
 # Create Gantt Chart
 
@@ -95,12 +123,14 @@ for ship in shipScheduleActual.keys():
     while startDay <= dayHorizon:    
         delta = 1   #all actions consume at least a day
         # figure out how many days in same place
-        currentReg = eval(shipScheduleActual[ship])[startDay-1]
+        #currentReg = eval(shipScheduleActual[ship])[startDay-1]
+        currentReg = shipScheduleActual[ship][startDay-1]
         if currentReg == 'None':
             startDay += 1
         else:
             for j in range(startDay-1, dayHorizon-1):
-                nextReg = eval(shipScheduleActual[ship])[j+1]
+                #nextReg = eval(shipScheduleActual[ship])[j+1]
+                nextReg = shipScheduleActual[ship][j+1]
                 if currentReg == nextReg:
                    delta += 1
                 else:

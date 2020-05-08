@@ -384,4 +384,117 @@ def lkh_solve(array, dummy=None):
         r_order = 0
     return r_order
 
+##### We will implement a class that keeps track of our tree using a hash table
+import copy
+class MyTree:
+    def __init__(self):
+        self.tree = {}
+        self.currentNode = ""
+        self.lowestLevel = 0
+    def create_node(self, parent, child, lower, upper, m):
+        model = copy.deepcopy(m)
+        ''' user inputs
+            child:   a string for child's name, naming convention: P0, P1, P2,...,
+            parent: a string for parent's name
+            objective:  objective value from solver
+            lower:  a lower bound on objective value    (rounded down sol)
+            upper:  an upper bound on objective value   (LP relax)
+            model:      a pyomo model object that contains all variablesa
+            status:     '', pruned
+                    prune by 'infeasible', 'bounds', 'optimal'
+                    node name is given by 'child key'
+
+            
+            dict/hash_table varibles:
+            layer:  int describing depth level each node belongs to 
+            In general,always branch from thenode with the maximum upper bound
+            If not feasible, then dont add create_node
+        '''
+        # child points to the parent
+        # check parent to update level
+        if parent in self.tree:
+            parentLevel = self.tree[parent]['level']
+            childLevel =  parentLevel + 1
+        else:
+            childLevel = 0
+        self.tree.update({child: {'parent': parent, 'lower': lower, 'upper': upper, 'model': model, 'level': childLevel}})          
+        self.currentNode = child 
+          
+        #update lowest level
+        if childLevel > self.lowestLevel:
+            self.lowestLevel = childLevel
+          
+    #def set_status(self, status, node):
+    #    '''status:   prune by 'infeasible', 'bounds', 'optimal'
+    #        node name is given by 'child key'
+
+    #    '''
+    #    temp = self.tree[node]
+    #    temp['status'] = status
+    #    self.tree.update({node: temp})
+
+    def return_children(self, node):
+        ''' return a child from given node
+        '''
+
+        # find all nodes with parent name given by "node"
+        #children = []
+        #for t in self.tree.keys():
+        #    if node == self.tree[t]['parent']
+        #       children.append(t)
+        # list comprehension is nicer
+        children = [t for t in self.tree.keys() if node == self.tree[t]['parent']]
+
+        # TODO: we should break the search after finding two childrens...
+        return children
+    
+    def return_model(self, node):
+        m = self.tree[node]['model']
+        return copy.deepcopy(m)  
+    
+    def delete_node(self, node):
+        if node in self.tree:
+            del self.tree[node]
+        
+    def find_maximum_upper_node(self):
+        maxUpperB = -1000
+        instance = ""
+        for t in self.tree.keys():
+            if self.tree[t]['upper'] > maxUpperB:
+                maxUpperB = self.tree[t]['upper']
+                instance = t
+        return instance, maxUpperB
+# Helper class to floor pyomo model values
+# implemented only for Flow Variables
+from pyomo.environ import Var
+def pyomo_floor(m):
+    #results = copy.deepcopy(r)
+    model = copy.deepcopy(m)
+    for v in model.component_data_objects(Var):
+        #currently only looking at schedule
+        if 'schedule' in v.name:    
+            v.value = np.floor(v.value)
+    # need to test to see if this is persistent?
+    # YES IT IS NEED DEEP COPY
+    # we will have two different models then
+    #for v in results.solution[0]['Variable'].keys():
+    #    #currently only looking at schedule
+    #    if 'schedule' in v:    
+    #        results.solution[0]['Variable'][v]['Value'] = np.floor(results.solution[0]['Variable'][v]['Value'])
+    return model
+
+import copy
+def pyomo_nonInteger_var(model):
+    #return all nonInteger variables
+    arr = []
+    for v in model.component_data_objects(Var):
+        if 'schedule' in v.name:
+            # check if current variable is integer
+            if v.value - np.floor(v.value) > 0:
+                temp_string=[]
+                for k in v.index():
+                     temp_string.append(k)
+                arr.append(tuple(temp_string))
+                #if v.domain == NonNegativeIntegers
+    return arr[:]
 

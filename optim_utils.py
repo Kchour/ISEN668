@@ -1,4 +1,5 @@
 import pdb
+import copy #for dep copy purposes
 ### older functions process results
 #def get_ship_schedules(varSchedules):
 #    solShipSchedule = {}
@@ -9,7 +10,7 @@ import pdb
 #    return solShipSchedule 
 #
 
-def get_ship_schedules(varSchedules, method):
+def get_ship_schedules(varSchedules, method, dayHorizon):
     solShipSchedule = {}
     if method == "GEN":
         # WHEN FORMAT WAS GEN SCHEDULES
@@ -19,22 +20,32 @@ def get_ship_schedules(varSchedules, method):
                 schedule = row[1]
                 solShipSchedule.update({ship: schedule})
     elif method == "NETW":
-        path = []
         sum_ = 0
         for row in varSchedules:
             if varSchedules[row].value == 1:
                 ship = row[0]
                 sum_ +=1 
                 try: 
-                    path = solShipSchedule[ship]
-                    path.append(row[2])
-                    path.append(row[4])
+                    path = copy.deepcopy(solShipSchedule[ship])    #WRONG WE NEED DEEP COPY
+                    #path.update({row[1]: row[2]})
+                    path.update({row[3]: row[4]})
                 except:
-                    path.append(row[2])
-                    path.append(row[4])
+                    path = {}
+                    path.update({row[1]: row[2]})
+                    path.update({row[3]: row[4]})
                 # NEED TO ORDER THE PATH ACCORDING TO DAY
-                solShipSchedule.update({ship: path[:]}) #deep copy
-    print("path elements: ",sum_)
+                solShipSchedule.update({ship: copy.deepcopy(path)}) #Bad things happen when we dont deep copy
+        # now reconstruct path in ship schedulea
+        for ship in solShipSchedule.keys():
+            path = []
+            for k in range(1, dayHorizon+1):
+                if k in solShipSchedule[ship]:
+                    path.append(solShipSchedule[ship][k])
+                else:
+                    path.append('None')
+            solShipSchedule.update({ship: path[:]})
+                    
+        print("path elements: ",sum_)
     return solShipSchedule
 #def get_cmc_assigned(varCMC):
 #    solShipCMC = {}

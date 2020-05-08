@@ -107,17 +107,23 @@ def generate_asp(regions):
         asp.update({r1: optimal_cost})
     return asp
 
-method = 'NETW' # NETW, GEN: will employ network flow or schedule generation approach
+method = 'GEN' # NETW, GEN: will employ network flow or schedule generation approach
 ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
-shipLimit = 1      #3,18 SHIPS IS THE MAX. This function is done outside now
+shipLimit = 1     #3,18 SHIPS IS THE MAX. This function is done outside now
 dayHorizon = 15
-schedule_limit = 10 # 5, 10, 50 limit the number of schedules generated, if using GEN method
-filename = "./pickle/spd" + '%i' % ship_speed
-filename += '_ships' + '%i' % shipLimit
-filename += '_days' + '%i' % dayHorizon 
-filename += '_method' + method
-filename += '_schedules' + '%i' % schedule_limit + '.pkl'
+schedule_limit = 50000 # 5, 10, 50 limit the number of schedules generated, if using GEN method
+if method == "GEN":
+    filename = "./pickle/spd" + '%i' % ship_speed
+    filename += '_ships' + '%i' % shipLimit
+    filename += '_days' + '%i' % dayHorizon 
+    filename += '_method' + method
+    filename += '_schedules' + '%i' % schedule_limit
+elif method == 'NETW':
+    filename = "./pickle/spd" + '%i' % ship_speed
+    filename += '_ships' + '%i' % shipLimit
+    filename += '_days' + '%i' % dayHorizon 
+    filename += '_method' + method
 def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=False):
     global ship_speed, shipLimit, dayHorizon, schedule_limit
     #### GENERATE SCHEDULES
@@ -167,6 +173,7 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
             while iter_< schedule_limit: 
                 # temporary schedule list
                 start = info["Start Region"]
+                #temp = []   #container for acceptable region
                 temp = []   #container for acceptable region
                 day = 0 #current day
                 while True:
@@ -179,52 +186,66 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
                         if len(temp) >= dayHorizon:
                             break
 
-                        # test mission/cmc is reasonable
-                        potential_ = asp[start]
-                        feasibleTargets = {}
-                        for r in potential_.keys():
-                            # round down if fractional part is less than 8 hours
+                        # enforce ship to stay in start regiong
+                        if day == info['Start Day']-1:
+                            temp.append(start)
+                            day+=1
+                        else:
+                            # test mission/cmc is reasonable
+                            potential_ = asp[start]
+                            feasibleTargets = {}
+                            for r in potential_.keys():
+                                # round down if fractional part is less than 8 hours
+                                #time = asp[start][rand_sel]/ship_speed/24.0
+                                time = potential_[r]/ship_speed/24.0
+                                if time-np.floor(time) <= cutoff_frac:
+                                    time = np.floor(time).astype('int')
+                                else:
+                                    time = np.ceil(time).astype('int')
+
+                                if time <= 1:
+                                    day2 = day +  1
+                                else:
+                                    day2 = day + time
+
+                                if day <= dayHorizon: 
+                                    try: 
+                                        feasible = srd[(ship, r, day2)]
+                                    except:
+                                        feasible = False
+                                        ''' may need to update feasibleTargets here wiht current pos'''
+                                        pass
+                                    if feasible == True:
+                                        feasibleTargets.update({r: day2-day})
+                            # Random selection. modified to use asp instead 
+                            #rand_sel = rdm.choice(list(asp[start].keys())) 
+                            # Random selection. modified to use asp and test feasibility
+                            try:
+                                rand_sel = rdm.choice(list(feasibleTargets.keys()))
+                            except:
+                                pdb.set_trace()
+                            # Find Transit Time in days and decide what to do
+                            #time = optimal_cost[rand_sel]/ship_speed/24.0
                             #time = asp[start][rand_sel]/ship_speed/24.0
-                            time = potential_[r]/ship_speed/24.0
-                            if time-np.floor(time) <= cutoff_frac:
-                                time = np.floor(time).astype('int')
-                            else:
-                                time = np.ceil(time).astype('int')
-                            day2 = day + time + 1
-                            if day2 <= dayHorizon: 
-                                try: 
-                                    feasible = srd[(ship, r, day2)]
-                                except:
-                                    feasible = False
-                                    ''' may need to update feasibleTargets here wiht current pos'''
-                                    pass
-                                if feasible == True:
-                                    feasibleTargets.update({r: time})
-                        # Random selection. modified to use asp instead 
-                        #rand_sel = rdm.choice(list(asp[start].keys())) 
-                        # Random selection. modified to use asp and test feasibility
-                        rand_sel = rdm.choice(list(feasibleTargets.keys()))
-                        # Find Transit Time in days and decide what to do
-                        #time = optimal_cost[rand_sel]/ship_speed/24.0
-                        #time = asp[start][rand_sel]/ship_speed/24.0
-                        # now using using feasible Targets, returns time in days
-                        time = feasibleTargets[rand_sel]
+                            # now using using feasible Targets, returns time in days
+                            time = feasibleTargets[rand_sel]
 
-                        # round down if fractional part is less than 8 hours
-                        #if time-np.floor(time) <= cutoff_frac:
-                        #    time = np.floor(time).astype('int')
-                        #else:
-                        #    time = np.ceil(time).astype('int')
-
-                        for i in range(time):
-                            temp.append('rTransit')
-                        # Append the desired selection
-                        temp.append(rand_sel)
-                       
-                        # start search from previous desired selection
-                        start = rand_sel
-                        #update current day
-                        day += time + 1
+                            # round down if fractional part is less than 8 hours
+                            #if time-np.floor(time) <= cutoff_frac:
+                            #    time = np.floor(time).astype('int')
+                            #else:
+                            #    time = np.ceil(time).astype('int')
+                            
+                            #for i in range(time):
+                            for i in range(time-1):
+                                temp.append('rTransit')
+                            # Append the desired selection
+                            temp.append(rand_sel)
+                           
+                            # start search from previous desired selection
+                            start = rand_sel
+                            #update current day
+                            day += time
 
                 # update current ship schedule
                 full_schedule.append(temp[:])
@@ -290,16 +311,20 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                         time = np.ceil(time).astype('int')
                     # Next region set for the next day iff only 1 day of travel required
                     # Occupy one region per day
-                    print(region, region2, time)
+                    #print(region, region2, time)
+                    # only add places that have positive accomplishment/value
                     if time <= 1:
-                        networkSRD.append((ship, day, region, day+1, region2))
+                        if (ship, region2, day+1) in srd:
+                            networkSRD.append((ship, day, region, day+1, region2))
                     else:
-                        # dont want to allow transit on day 15..makes no sense
-                        if day < days[-2]:
-                            # do transit up until the reaching day
-                            for t in range(time-1):
-                                networkSRD.append((ship, day+t, region, day+t+1, 'rTransit'))
-                            networkSRD.append((ship, day+time-1, 'rTransit', day+time, region2))
+                        # only add places that have positive accomplishment/value
+                        if (ship, region2, day+time) in srd:
+                            # dont want to allow transit on day 15..makes no sense
+                            if day < days[-2]:
+                                # do transit up until the reaching day
+                                for t in range(time-1):
+                                    networkSRD.append((ship, day+t, region, day+t+1, 'rTransit'))
+                                networkSRD.append((ship, day+time-1, 'rTransit', day+time, region2))
         
                 ## Allow zeroth node to reach any other node to account for ship start day
                 #if day == 0:
@@ -312,7 +337,6 @@ def network_flow_genSchedules(ships, days, regions, shipSpeed, cutOff, asp):
                 #                networkSRD.append((ship, zerothDaySt+k , row[2], zerothDayEn+k, row[4]))
                 #            else:
                 #                networkSRD.append((ship, zerothDaySt , row[2], zerothDayEn+k, row[4]))
-    pdb.set_trace()
     return networkSRD
 #### Define Data for modeling
 
@@ -353,8 +377,9 @@ for n, nInfo in dfMission.iterrows():
         valueMNRD.update({(nInfo['Type'], n, nInfo['Region'], d): nInfo['Value']})
 
 # get a list of ships
-#shipList = get_ships(shipLimit)
-shipList = ['VellaGulf']
+shipList = get_ships(shipLimit)
+#shipList = ['VellaGulf']
+#shipList = ['Carr']
 
 # Create cmc selection variable. Only select cmcs from the dfShips list
 cmcS = {}
@@ -477,6 +502,7 @@ elif method == "NETW":
     regions_.append('rTransit')
     for ship in shipList:
         finalFlowOut = 0
+        finalFlowIn = 0
         for day in days:
             for region in regions_:
                 # if exists in networkSRDproc
@@ -488,7 +514,8 @@ elif method == "NETW":
                         OutArcs = networkSRDproc[(ship, day, region)]['out']
                         FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule)
                         model.constraints.add(FlowOut == 1)
-                    elif day < len(days)-1:
+                    #elif day < len(days)-1:    #this worked
+                    elif day <= len(days)-1:
                         OutArcs = networkSRDproc[(ship, day, region)]['out']
                         InArcs = networkSRDproc[(ship, day, region)]['in']
                         FlowOut = sum(model.schedule[(ship, day, region, dest[0], dest[1] )] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule) 
@@ -496,10 +523,13 @@ elif method == "NETW":
                         model.constraints.add(FlowOut - FlowIn == 0)
                     else:
                         # only one arc can reach the 15th day
-                        OutArcs = networkSRDproc[(ship, day, region)]['out']
-                        finalFlowOut += sum(model.schedule[(ship, day, region, dest[0], dest[1])] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule)
+                        #OutArcs = networkSRDproc[(ship, day, region)]['out']
+                        InArcs = networkSRDproc[(ship, day, region)]['in']
+                        #finalFlowOut += sum(model.schedule[(ship, day, region, dest[0], dest[1])] for dest in OutArcs if (ship, day, region, dest[0], dest[1]) in model.schedule)
+                        finalFlowIn += sum(model.schedule[(ship, source[0], source[1], day, region)] for source in InArcs if (ship, source[0], source[1], day, region) in model.schedule)
         # add final constraints
-        model.constraints.add(finalFlowOut == 1)
+        #model.constraints.add(finalFlowOut == 1)
+        model.constraints.add(finalFlowIn == 1)
 
 if method == "GEN":
     # For each ship, day, and region...a cmc is selected iff a schedule is selected with the same region on the same day (T2)
@@ -518,7 +548,14 @@ elif method == "NETW":
                 '''lhs same as above'''
                 lhs = sum(model.cmc[ship, cmc['CMC'], day, region] for cmc in cmcS[ship]['ALL_CMCs'])
                 ''' rhs '''
-                rhs = sum(model.schedule[(ship, day, region, outarc[0], outarc[1] )] for outarc in networkSRDproc[(ship, day, region)]['out'] if len(outarc) > 0 and (ship, day, region, outarc[0], outarc[1]) in model.schedule)
+                if (ship, day, region) in networkSRDproc:
+                    rhs = sum(model.schedule[(ship, day, region, outarc[0], outarc[1] )] for outarc in networkSRDproc[(ship, day, region)]['out']  if (ship, day, region, outarc[0], outarc[1]) in model.schedule)
+                    rhs += sum(model.schedule[(ship, inarc[0], inarc[1], day ,region )] for inarc in networkSRDproc[(ship, day, region)]['in']  if (ship, inarc[0], inarc[1], day, region) in model.schedule)
+                else:
+                    rhs = 0
+                ## handling edge case with day = 15
+                #if day == len(days):
+                #    rhs = 1
                 '''add constraints '''
                 model.constraints.add(lhs <= rhs)
                 model.constraints.add(lhs <= 1)
@@ -536,7 +573,7 @@ for m in missionTypes:
                 model.constraints.add(lhs <= rhs)
 
 
-### We have completed a task with somemission type, at some region, and some day...(T4hall)
+### We have completed a task with some mission type, at some region, and some day...(T4hall)
 for m in missionTypes:
     for r in regions:
         for d in days:
@@ -562,7 +599,6 @@ for m in missionTypes:
                         model.constraints.add( model.level[m, n, r, d] <= model.finished[m2, r, d])
                         
 
-
 ### add objective function
 
 # define objective function with model as input
@@ -576,7 +612,6 @@ model.obj = Objective(rule=obj_rule, sense=maximize)
 
 ### Solve the problem
 
-pdb.set_trace()
 opt = SolverFactory('cbc')
 results = opt.solve(model, tee=True)
 # store results back in model for ease of access
@@ -585,12 +620,12 @@ results.write()
 
 
 # Test functions
-testa = get_ship_schedules(model.schedule, method)
+testa = get_ship_schedules(model.schedule, method, dayHorizon)
 testb = get_cmc_assigned(model.cmc)
-testc= get_accomplishLevel(model.level)
+testc = get_accomplishLevel(model.level)
 # for row in testc.items(): print(row)
 
-testd= get_finishedMissions(model.finished)
+testd = get_finishedMissions(model.finished)
 # debug for finished mission types
 #for m in missionTypes:
 #    for r in regions:
@@ -602,14 +637,13 @@ testd= get_finishedMissions(model.finished)
 
 # Save model and results
 #global ship_speed, shipLimit, dayHorizon, schedule_limit
-pdb.set_trace()
 import cloudpickle
 #filename = "./pickle/spd" + '%i' % ship_speed
 #filename += '_ships' + '%i' % len(shipList)
 #filename += '_days' + '%i' % dayHorizon 
 #filename += '_schedules' + '%i' % schedule_limit + '.pkl'
-with open(filename, mode='wb') as file: cloudpickle.dump(model,file)
-with open(filename+'.result', mode='wb') as file: cloudpickle.dump(results,file)
+with open(filename+'.model.pkl', mode='wb') as file: cloudpickle.dump(model,file)
+with open(filename+'.result.pkl', mode='wb') as file: cloudpickle.dump(results,file)
 
 # To reload
 #with open('test.pkl', mode='rb') as file: model = cloudpickle.load(file)

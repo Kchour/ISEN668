@@ -459,7 +459,7 @@ results.write()
 
 
 # Test functions
-testa = get_ship_schedules(model.schedule, 'GEN')
+testa = get_ship_schedules(model.schedule, 'GEN', dayHorizon)
 testb = get_cmc_assigned(model.cmc)
 testc= get_accomplishLevel(model.level)
 # for row in testc.items(): print(row)
