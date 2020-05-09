@@ -112,7 +112,7 @@ ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
 shipLimit = 1     #3,18 SHIPS IS THE MAX. This function is done outside now
 dayHorizon = 15
-schedule_limit = 50000 # 5, 10, 50 limit the number of schedules generated, if using GEN method
+schedule_limit = 5000 # 5, 10, 50 limit the number of schedules generated, if using GEN method
 if method == "GEN":
     filename = "./pickle/spd" + '%i' % ship_speed
     filename += '_ships' + '%i' % shipLimit

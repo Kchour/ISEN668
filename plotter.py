@@ -15,13 +15,13 @@ import pandas as pd
              GEN        16              18          15              15
              GEN        16              1           5              5               BB case
 '''    
-method = 'NETW' # NETW, GEN
-scheduleLimit = 5  #Only relevant to GEN
+method = 'GEN' # NETW, GEN
+scheduleLimit = 5000  #Only relevant to GEN
 shipSpeed = 16
 shipLimit = 1
-dayHorizon = 5
-BB = True       # USE BB RESULTS?
-
+dayHorizon = 15
+BB = False       # USE BB RESULTS?
+LP = False
 if method == "GEN":
     filename = "./pickle/spd" + '%i' % shipSpeed
     filename += '_ships' + '%i' % shipLimit
@@ -39,8 +39,12 @@ elif method == 'NETW':
 #filename += '_method' + method  #RENAME SOME FILES 
 #filename += '_schedules' + '%i' % scheduleLimit + '.pkl'
 if BB==True:
-    with open(filename+'.bb.model.pkl', mode='rb') as file: model = cloudpickle.load(file)
-    with open(filename+'.bb.result.pkl', mode='rb') as file: optResults = cloudpickle.load(file)
+    if LP == True:
+        with open(filename+'.bb.LP.model.pkl', mode='rb') as file: model = cloudpickle.load(file)
+        with open(filename+'.bb.LP.result.pkl', mode='rb') as file: optResults = cloudpickle.load(file)
+    else:
+        with open(filename+'.bb.model.pkl', mode='rb') as file: model = cloudpickle.load(file)
+        with open(filename+'.bb.result.pkl', mode='rb') as file: optResults = cloudpickle.load(file)
 else:
     with open(filename+'.model.pkl', mode='rb') as file: model = cloudpickle.load(file)
     with open(filename+'.result.pkl', mode='rb') as file: optResults = cloudpickle.load(file)
@@ -109,7 +113,10 @@ else:
 
 # generate colors dict with region
 regenColors = False
+print("obj: ", optResults.Solution[0]['Objective']['obj']['Value'])
+print("Time: ",optResults.Solver[0]['Wallclock time'])
 
+pdb.set_trace()
 
 #import plotly.plotly as py
 import plotly.figure_factory as ff

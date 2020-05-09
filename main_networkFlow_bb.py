@@ -10,6 +10,7 @@ from optim_utils import *
 import copy #deep copy purposes
 #Debugging tools
 import pdb, traceback, sys
+import cloudpickle
 
 global ship_speed, shipLimit, dayHorizon, schedule_limit, filename
 
@@ -107,6 +108,7 @@ def generate_asp(regions):
         asp.update({r1: optimal_cost})
     return asp
 
+LPrelax =  True
 method = 'NETW' # NETW, GEN: will employ network flow or schedule generation approach
 ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
@@ -441,7 +443,10 @@ if method=="GEN":
     # binary variable for schedule selected for ship (Y_{ps})
     model.schedule = Var( ((ship, schedule) for ship in ship_schedule.keys() for schedule in range(len(ship_schedule[ship]))), within=Binary, initialize=0)
 elif method == "NETW":
-    model.schedule = Var( ((row[0], row[1], row[2], row[3], row[4]) for row in networkSRD), bounds=(0,1), initialize=0)
+    if LPrelax == True:
+        model.schedule = Var( ((row[0], row[1], row[2], row[3], row[4]) for row in networkSRD), bounds=(0,1), initialize=0)
+    else:
+        model.schedule = Var( ((row[0], row[1], row[2], row[3], row[4]) for row in networkSRD), within=Binary, initialize=0)
 
 # binary variables for concurrent mission selection. Indexed by ship, cmc#, day, and region (W)
 model.cmc = Var( ((ship, cmc['CMC'], day, region) for ship in shipList for cmc in cmcS[ship]['ALL_CMCs'] for day in days for region in regions), within=Binary, initialize=0)
@@ -638,68 +643,82 @@ testd = get_finishedMissions(model.finished)
 
 # results.solution[0]['Variable']
 
-upperB = results.Solution[0].Objective['obj']['Value']
-m2_floor = pyomo_floor(model)
-lowerB = obj_value(m2_floor)
-mCopy = copy.deepcopy(model) 
-Tree = MyTree()     #from my utils module
-Tree.create_node('', 'P0', lowerB, upperB, mCopy)
+# Keep track of time here
+from codetiming import Timer
+t = Timer(name="coverage_timer", logger=None)
+t.start()
 
-iter_ = 0
-while len(Tree.tree.keys()) != 0:
-    if iter_ > 1000:
-        pdb.set_trace()
-    node, maxUpperB = Tree.find_maximum_upper_node()
-    mCopy = Tree.return_model(node) 
+if LPrelax == True:
+    upperB = results.Solution[0].Objective['obj']['Value']
+    m2_floor = pyomo_floor(model)
+    lowerB = obj_value(m2_floor)
+    mCopy = copy.deepcopy(model) 
+    Tree = MyTree()     #from my utils module
+    Tree.create_node('', 'P0', lowerB, upperB, mCopy)
 
-    #results = opt.solve(mCopy, tee=True)
-    results = opt.solve(mCopy)
-    mCopy.solutions.store_to(results)
-    if results.solver.termination_condition == TerminationCondition.infeasible:
-        status = "INFEASIBLE"
-        # THEN NODE IS PRUNED
-        # now remove node from Tree
-        Tree.delete_node(node)
-    elif (results.solver.status == SolverStatus.ok) and (results.solver.termination_condition == TerminationCondition.optimal):
-        status = "BRANCHABLE"
-        vars_ = pyomo_nonInteger_var(mCopy)
-        # If all integer solution, then
-        if len(vars_) == 0:
-            BestModel = copy.deepcopy(mCopy)
-            pdb.set_trace()
-            BestUpperB = results.Solution[0].Objective['obj']['Value']
-            # Remove all nodes that have less upper bounds than this
-            for v in Tree.tree.keys():
-                if Tree.tree[v]['upper'] < BestUpperB:
-                    Tree.delete_node(v)
-        else:
-            # Generate SubProblems
-            rdm_sel = rdm.choice(vars_) 
-            mCopy.constraints.add(mCopy.schedule[rdm_sel] == 0)
+    iter_ = 0
+    while len(Tree.tree.keys()) != 0:
+        if iter_ > 1000:
+            break
+        node, maxUpperB = Tree.find_maximum_upper_node()
+        mCopy = Tree.return_model(node) 
 
-            Tree.create_node('P'+ '%i' % iter_, 'P' + '%i' % (iter_+1), lowerB, upperB, mCopy) 
-            
-            iter_ += 1
-            
-            mCopy = Tree.return_model(node) 
-            mCopy.constraints.add(mCopy.schedule[rdm_sel] == 1)
-            Tree.create_node('P'+ '%i' % iter_, 'P' + '%i' % (iter_+1), lowerB, upperB, mCopy) 
-            
-            iter_ += 1
-
-            # Delete Node
+        #results = opt.solve(mCopy, tee=True)
+        results = opt.solve(mCopy)
+        mCopy.solutions.store_to(results)
+        if results.solver.termination_condition == TerminationCondition.infeasible:
+            status = "INFEASIBLE"
+            # THEN NODE IS PRUNED
+            # now remove node from Tree
             Tree.delete_node(node)
+        elif (results.solver.status == SolverStatus.ok) and (results.solver.termination_condition == TerminationCondition.optimal):
+            status = "BRANCHABLE"
+            vars_ = pyomo_nonInteger_var(mCopy)
+            # If all integer solution, then
+            if len(vars_) == 0:
+                BestModel = copy.deepcopy(mCopy)
+                # There's a bug in here
+                break
+                BestUpperB = results.Solution[0].Objective['obj']['Value']
+                # Remove all nodes that have less upper bounds than this
+                for v in Tree.tree.keys():
+                    if Tree.tree[v]['upper'] < BestUpperB:
+                        Tree.delete_node(v)
+            else:
+                # Generate SubProblems
+                rdm_sel = rdm.choice(vars_) 
+                mCopy.constraints.add(mCopy.schedule[rdm_sel] == 0)
 
+                Tree.create_node('P'+ '%i' % iter_, 'P' + '%i' % (iter_+1), lowerB, upperB, mCopy) 
+                
+                iter_ += 1
+                
+                mCopy = Tree.return_model(node) 
+                mCopy.constraints.add(mCopy.schedule[rdm_sel] == 1)
+                Tree.create_node('P'+ '%i' % iter_, 'P' + '%i' % (iter_+1), lowerB, upperB, mCopy) 
+                
+                iter_ += 1
+
+                # Delete Node
+                Tree.delete_node(node)
+    timeValue = t.stop()
+    print("Elapsed Time :", timeValue)
+    print("Saving LP_RELAX BB results")
+    with open(filename+'.bb.LP.model.pkl', mode='wb') as file: cloudpickle.dump(model,file)
+    with open(filename+'.bb.LP.result.pkl', mode='wb') as file: cloudpickle.dump(results,file)
+else:
+    # Save the regular results
+    print("Saving NON-LP_RELAX results")
+    pdb.set_trace()
+    with open(filename+'.bb.model.pkl', mode='wb') as file: cloudpickle.dump(model,file)
+    with open(filename+'.bb.result.pkl', mode='wb') as file: cloudpickle.dump(results,file)
                 
 # Save model and results
 #global ship_speed, shipLimit, dayHorizon, schedule_limit
-import cloudpickle
 #filename = "./pickle/spd" + '%i' % ship_speed
 #filename += '_ships' + '%i' % len(shipList)
 #filename += '_days' + '%i' % dayHorizon 
 #filename += '_schedules' + '%i' % schedule_limit + '.pkl'
-with open(filename+'.bb.model.pkl', mode='wb') as file: cloudpickle.dump(model,file)
-with open(filename+'.bb.result.pkl', mode='wb') as file: cloudpickle.dump(results,file)
 
 # To reload
 #with open('test.pkl', mode='rb') as file: model = cloudpickle.load(file)
