@@ -16,9 +16,9 @@ import pandas as pd
              GEN        16              1           5              5               BB case
 '''    
 method = 'GEN' # NETW, GEN
-scheduleLimit = 5000  #Only relevant to GEN
+scheduleLimit = 5  #Only relevant to GEN
 shipSpeed = 16
-shipLimit = 1
+shipLimit = 18
 dayHorizon = 15
 BB = False       # USE BB RESULTS?
 LP = False
