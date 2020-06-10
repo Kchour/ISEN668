@@ -43,7 +43,6 @@ edgeDict = {(dfArcs.loc[i]['Arcs'], dfArcs.loc[i]['Unnamed: 1']): dfArcs.loc[i][
 edgeDictMirror = {(dfArcs.loc[i]['Unnamed: 1'], dfArcs.loc[i]['Arcs']): dfArcs.loc[i]['Length(nm)'] for i in range(len(dfArcs))  }
 edgeDict.update(edgeDictMirror)
 
-
 ### Plotting graph for DEBUG PURPOSES
 #G = nx.Graph()
 #G.add_weighted_edges_from(edgeList)
@@ -107,12 +106,13 @@ def generate_asp(regions):
         asp.update({r1: optimal_cost})
     return asp
 
-method = 'GEN' # NETW, GEN: will employ network flow or schedule generation approach
+method = 'NETW' # NETW, GEN: will employ network flow or schedule generation approach
 ship_speed = 16  #knots
 cutoff_frac = 1/3  # round down if fractional day is less than this
 shipLimit = 1     #3,18 SHIPS IS THE MAX. This function is done outside now
 dayHorizon = 15
 schedule_limit = 5000 # 5, 10, 50 limit the number of schedules generated, if using GEN method
+
 if method == "GEN":
     filename = "./pickle/spd" + '%i' % ship_speed
     filename += '_ships' + '%i' % shipLimit

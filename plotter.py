@@ -3,6 +3,7 @@ import pdb
 import cloudpickle
 from optim_utils import *
 import pandas as pd
+# THIS LIST IS INCOMPLETE
 '''Case 1:   method     shipSpeed     shipLimit     dayHorizon  scheduleLimit   GotData/Proc?
              NETW       16              18          15              -               Y/N
              NETW       16              3           15              -               Y/N
@@ -189,32 +190,5 @@ fig['layout']['title'] = 'Ship Capability Assignment over 15-day horizon'
 fig.write_html("gantt.html")
 fig.show()
 
-##df = [dict(Task="Ship A", Start='2009-01-01', Finish='2009-02-28', Mission='AD'),
-##      dict(Task="Ship B", Start='2008-12-05', Finish='2009-04-15', Mission='SUW'),
-##      dict(Task="Ship C", Start='2009-02-20', Finish='2009-05-30', Mission='STRIKE')]
-#df = [dict(Task="Ship A", Start=1, Finish=2, Mission='AD', ),
-#      dict(Task="Ship B", Start='2', Finish='5', Mission='SUW'),
-#      dict(Task="Ship C", Start='4', Finish='14', Mission='STRIKE'),
-#      dict(Task="Ship A", Start=2, Finish=3, Mission='STRIKE')]
-#
-#colors = dict(AD='rgb(220, 0, 0)', SUW='rgb(170, 14, 200)', STRIKE=(1, 0.9, 0.16))
-#fig = ff.create_gantt(df, colors=colors, index_col='Mission', show_colorbar=True, showgrid_x=True,group_tasks=True)
-#
-##fig = ff.create_gantt(df,colors='RdBu', index_col='Complete',show_colorbar=True)
-#fig['layout']['xaxis']['rangeselector']['visible'] = True
-#fig['layout']['xaxis']['rangeslider'] = dict(bgcolor='#E2E2E2')
-##fig['layout']['xaxis']['type'] = 'date'
-#fig['layout']['xaxis']['type'] = 'linear'
-#
-#
-## add annotations
-#annots =  [dict(x=8,y=0,text="Region r1", showarrow=False, font=dict(color='white')),
-#           dict(x=(5-2)/2+2,y=1,text="Region r2", showarrow=False, font=dict(color='White')),
-#           dict(x=5+4,y=2,text="Region r3", showarrow=False, font=dict(color='White'))]
-#
-#fig['layout']['annotations'] = annots
-#fig.show()
-#
-##py.iplot(fig, filename='gantt-simple-gantt-chart')
 
 pdb.set_trace()

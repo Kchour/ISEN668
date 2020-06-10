@@ -115,6 +115,8 @@ filename = "./pickle/spd" + '%i' % ship_speed
 filename += '_ships' + '%i' % shipLimit
 filename += '_days' + '%i' % dayHorizon 
 filename += '_schedules' + '%i' % schedule_limit + '.pkl'
+
+# Generate ship schedules
 def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=False):
     global ship_speed, shipLimit, dayHorizon, schedule_limit
     #### GENERATE SCHEDULES
@@ -140,20 +142,14 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
     excelFileName_ = filename + ".xlsx"
     if regenerate==True:
         ship_schedule = {index:[] for index, info in dfShips.iterrows() if info["Avail"] == 'x'}
+        
         # convert ship info to dict for ease of use
         dfShips_dict = dfShips.to_dict()
+        
         # Initialize ship_schedule dict
         ship_schedule = {}
-        #ship_speed = 16  #knots
-        #cutoff_frac = 1/3  # round down if fractional day is less than this
-        ##shipLimit = 18      #18 SHIPS IS THE MAX. This function is done outside now
-        #dayHorizon = 15
-        #schedule_limit = 10 #100,1000,50000 limit the number of schedules generated
-        # Create a graph based on edges given
-        #graph = MyGraph(edgeDict)
-
         ship_inst = 1
-        #for index, info in dfShips.iterrows():
+        
         for ship in desiredShips:
             info = dfShips.loc[ship]
             # Skip ship if not available
@@ -176,7 +172,6 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
                     feasibleTargets = {}
                     for r in potential_.keys():
                         # round down if fractional part is less than 8 hours
-                        #time = asp[start][rand_sel]/ship_speed/24.0
                         time = potential_[r]/ship_speed/24.0
                         if time-np.floor(time) <= cutoff_frac:
                             time = np.floor(time).astype('int')
@@ -192,22 +187,14 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
                                 pass
                             if feasible == True:
                                 feasibleTargets.update({r: time})
-                    # Random selection. modified to use asp instead 
-                    #rand_sel = rdm.choice(list(asp[start].keys())) 
-                    # Random selection. modified to use asp and test feasibility
+                    
+                    # Randomly select a feasible target
                     rand_sel = rdm.choice(list(feasibleTargets.keys()))
-                    # Find Transit Time in days and decide what to do
-                    #time = optimal_cost[rand_sel]/ship_speed/24.0
-                    #time = asp[start][rand_sel]/ship_speed/24.0
-                    # now using using feasible Targets, returns time in days
+                    
+                    # Find Transit Time in days
                     time = feasibleTargets[rand_sel]
 
-                    # round down if fractional part is less than 8 hours
-                    #if time-np.floor(time) <= cutoff_frac:
-                    #    time = np.floor(time).astype('int')
-                    #else:
-                    #    time = np.ceil(time).astype('int')
-
+                    # Add virtual region rTransit to
                     for i in range(time):
                         temp.append('rTransit')
                     # Append the desired selection
@@ -215,6 +202,7 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
                    
                     # start search from previous desired selection
                     start = rand_sel
+
                     #update current day
                     day += time + 1
 
@@ -222,15 +210,11 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
                 full_schedule.append(temp[:])
                 
                 #update iter_
-                print(iter_)
+                #print(iter_)
                 iter_ +=1
             
                 # assign to each ship name (given by index) candidate schedules
-                #ship_schedule.update({index: full_schedule[:]})
                 ship_schedule.update({ship: full_schedule[:]})
-               
-                # # if testing just 1 ship
-                # ship_inst += 1
     else:
         #READ schedules from disk if they exist
         #test = pd.read_excel("Schedule_10.xlsx")
@@ -251,6 +235,8 @@ def generate_schedules(dfShips, asp, desiredShips, regenerate=False, saveToDisk=
         dfSave.to_excel(excelFileName_, index=False)
     
     return ship_schedule
+
+
 #### Define Data for modeling
 
 ## Create some variables for ease of use
