@@ -27,7 +27,7 @@ i.e to use GLPK: `sudo apt-get install -y glpk-utils`
 
 i.e. to use SCIP: May need to install from source
 
-Other sys deps may be related `open office` or `pandas` module
+Other sys deps may be related `open office` or `pandas` module: `python3 -m pip install odfpy`
 
 # Setup Overview:
 
