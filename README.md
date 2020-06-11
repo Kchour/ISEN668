@@ -34,8 +34,11 @@ Other sys deps may be related `open office` or `pandas` module: `python3 -m pip 
 The problem instances (ship name, number, concurrent mission capabilities (CMC), mission numbers) are stored in the `.ods` (openOffice) spreadsheets. They are as follows, with the most relevant information highlighted:
 
 `ships.ods`: contains ship number, `name`, `availability`, class, type, `start day`, `start region`, and `CMCs`
+
 `regions.ods`: defines a graph over our geographical location (Korean Peninsula), by providing edges and respective weights (nautical miles)
+
 `mission_set.ods`: defines our mission numbers (m1-m80) to be completed. Contains `Mission`, `include`, `Type`, `Region`, `Start Day`, `End Day`, `Value`, and `Required`
+
 `cmc.ods`: defines accomplishment levels for each CMC number. There are 11 mission types here: `AD`, `TBMD`, `ASW`, `SUW`, `Strike`, `NSFS`, `MIO`, `MCM`, `Mine`, `Intel`, `SubIntel`
 
 Processed data is stored in the folder `pickle`, which mainly relies on the `cloudPickle` module to serialize python objects. However, not everything in this folder is a cpickle object. We will come back to this later
@@ -53,11 +56,17 @@ Either can be run by invoking python3 i.e.`python3 main_FILENAME.py`.
 First, we load the problem instances into memory with `pandas`. Again, they are the mission sets, cmcs, ships, and regions. Most of the next few functions are pretty self explanatory.
 
 Open `main_networkFlow.py`. From line line `109-114`, we can set a few parameters:
+
 `method`: either use schedule generation or network flow (values: GEN, NETW)
+
 `ship_speed`: average transit speed in nautical miles (default `16`)
+
 `cutoff_frac`: duration counted as fraction of a day. If transit time takes more time than this duration, it is counted as a full day (default `1/3`)
+
 `shipLimit`:  number of ships to include in our problem (default `18`)
+
 `dayHorizon`: planning horizon (default 15)
+
 `schedule_limit`:  number of schedules to generate per ship (default `5`)
 
 The next function `generate_schedules` as its name implies, creates feasible schedules for each ship based on its current location on the graph G. We first use `dijkstra` to calculate the shortest path between any 2 regions on the graph. Together with `ship_speed`, we can approximate the transit time between any two regions. Then, for each ship, we generate several arrays, each of length defined by `dayHorizon`. The i-th position in the array corresponds to the the i-th day. We then continually append a region `r` from G at random, starting from the ships `start day`, while taking into account transit times. This is repeated until all ships have the same number of schedules
