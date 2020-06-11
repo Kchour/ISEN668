@@ -35,7 +35,7 @@ The problem instances (ship name, number, concurrent mission capabilities (CMC),
 
 `ships.ods`: contains ship number, `name`, `availability`, class, type, `start day`, `start region`, and `CMCs`
 `regions.ods`: defines a graph over our geographical location (Korean Peninsula), by providing edges and respective weights (nautical miles)
-`mission_set.ods`: defines our mission numbers (m1-m80) to be completed. Contains `Mission', include, `Type`, `Region`, `Start Day`, `End Day`, `Value`, and `Required`
+`mission_set.ods`: defines our mission numbers (m1-m80) to be completed. Contains `Mission`, `include`, `Type`, `Region`, `Start Day`, `End Day`, `Value`, and `Required`
 `cmc.ods`: defines accomplishment levels for each CMC number. There are 11 mission types here: `AD`, `TBMD`, `ASW`, `SUW`, `Strike`, `NSFS`, `MIO`, `MCM`, `Mine`, `Intel`, `SubIntel`
 
 Processed data is stored in the folder `pickle`, which mainly relies on the `cloudPickle` module to serialize python objects. However, not everything in this folder is a cpickle object. We will come back to this later
